@@ -1,6 +1,9 @@
-# text2sql-agent 🚀
+# LGP Evals CI/CD Pipeline 🚀
 
-A powerful text-to-SQL agent that converts natural language queries into SQL statements using LangGraph and LangChain
+Agent built in [LangGraph OSS](https://docs.langchain.com/oss/python/langgraph/overview). It includes:
+- unit, integration, e2e tests
+- offline evaluations with [OpenEvals](https://github.com/langchain-ai/openevals) and [LangSmith](https://docs.langchain.com/langsmith/home)
+- preview and prod agent deployments using [LangGraph Platform](https://docs.langchain.com/langgraph-platform/api-ref-control-plane) control plane API
 
 ## 🛠️ Prerequisites
 
