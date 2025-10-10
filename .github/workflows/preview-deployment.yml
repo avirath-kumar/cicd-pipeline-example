@@ -5,6 +5,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
+  workflow_run:
+    workflows: ["Comprehensive Tests"]
+    types: [completed]
 
 # Set environment variables
 env:
@@ -23,6 +26,7 @@ permissions:
 jobs:
   preview-deployment:
     runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'pull_request'
 
     steps:
     - name: Checkout repository
