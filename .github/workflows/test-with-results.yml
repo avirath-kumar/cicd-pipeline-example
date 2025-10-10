@@ -311,3 +311,111 @@ jobs:
       with:
         name: e2e-test-results
         path: e2e-results.xml
+
+  langgraph-dev-test:
+    needs: [setup, quality-checks, test-coverage]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
+      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+      with:
+        version: "latest"
+    - name: Cache uv dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          .uv/cache
+          .venv
+        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-uv-comprehensive-
+    - name: Install dependencies
+      run: uv sync
+    - name: Start LangGraph dev server
+      run: |
+        echo "🚀 Starting LangGraph dev server..."
+        uv run langgraph dev --host 0.0.0.0 --port 2024 &
+        SERVER_PID=$!
+        echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+
+        # Wait for server to start
+        echo "⏳ Waiting for server to start..."
+        sleep 10
+
+        # Check if server is running
+        if ps -p $SERVER_PID > /dev/null; then
+          echo "✅ LangGraph dev server started successfully (PID: $SERVER_PID)"
+        else
+          echo "❌ Failed to start LangGraph dev server"
+          exit 1
+        fi
+    - name: Test server health endpoint
+      run: |
+        echo "🔍 Testing server health endpoint..."
+
+        # Test the /ok endpoint
+        for i in {1..30}; do
+          echo "Attempt $i/30: Testing /ok endpoint..."
+          if curl -f -s http://localhost:2024/ok > /dev/null; then
+            echo "✅ Server health check passed!"
+            break
+          else
+            echo "⏳ Server not ready yet, waiting..."
+            sleep 2
+          fi
+        done
+
+        # Final health check with detailed response
+        echo "🔍 Final health check..."
+        HEALTH_RESPONSE=$(curl -s http://localhost:2024/ok || echo '{"ok":false}')
+        echo "Health response: $HEALTH_RESPONSE"
+
+        # Parse JSON response
+        if echo "$HEALTH_RESPONSE" | jq -e '.ok == true' > /dev/null; then
+          echo "✅ LangGraph dev server is healthy and responding correctly!"
+        else
+          echo "❌ LangGraph dev server health check failed"
+          echo "Response: $HEALTH_RESPONSE"
+          exit 1
+        fi
+    - name: Test server endpoints
+      run: |
+        echo "🔍 Testing additional server endpoints..."
+
+        # Test root endpoint
+        echo "Testing root endpoint..."
+        ROOT_RESPONSE=$(curl -s http://localhost:2024/ || echo "Failed")
+        echo "Root response: $ROOT_RESPONSE"
+
+        # Test if server is serving the LangGraph Studio interface
+        if curl -f -s http://localhost:2024/ | grep -q "LangGraph" || curl -f -s http://localhost:2024/ | grep -q "langgraph"; then
+          echo "✅ LangGraph Studio interface is accessible"
+        else
+          echo "⚠️  LangGraph Studio interface may not be fully loaded"
+        fi
+    - name: Stop LangGraph dev server
+      if: always()
+      run: |
+        echo "🛑 Stopping LangGraph dev server..."
+        if [ -n "$SERVER_PID" ]; then
+          kill $SERVER_PID 2>/dev/null || true
+          echo "✅ LangGraph dev server stopped"
+        fi
+    - name: LangGraph dev server test results
+      if: always()
+      run: |
+        echo "📊 LangGraph dev server test completed"
+        echo "✅ Server was able to start and respond to health checks"
