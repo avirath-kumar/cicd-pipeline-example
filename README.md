@@ -247,15 +247,15 @@ graph TD
 
     subgraph "Cloud LangSmith"
         G --> I[Method 1: Connect GitHub Repo in UI]
-        G --> J[Method 2: Build Docker Image]
+        G --> J[Method 2: Docker Image]
         I --> K[Deploy via LangSmith UI]
-        J --> L[Build Docker Image]
+        J --> L[Build Docker Image langgraph build]
         L --> M[Push to Container Registry]
         M --> N[Deploy via Control Plane API]
     end
 
     subgraph "Self-Hosted/Hybrid LangSmith"
-        H --> S[Build Docker Image]
+        H --> S[Build Docker Image langgraph build]
         S --> T[Push to Container Registry]
         T --> U{Deploy via?}
         U -->|UI| V[Specify Image URI in UI]
