@@ -5,6 +5,9 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
     branches: [main]
+  workflow_run:
+    workflows: ["Comprehensive Tests"]
+    types: [completed]
 
 # Set environment variables
 env:
@@ -21,21 +24,9 @@ permissions:
   issues: write
 
 jobs:
-  wait-for-tests:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Wait for tests to complete
-      uses: lewagon/wait-on-check-action@v1.3.4
-      with:
-        ref: ${{ github.event.pull_request.head.sha }}
-        check-name: 'Comprehensive Tests'
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-        wait-interval: 10
-        allowed-conclusions: success
-
   preview-deployment:
-    needs: wait-for-tests
     runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'pull_request'
 
     steps:
     - name: Checkout repository
