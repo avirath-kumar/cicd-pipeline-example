@@ -5,6 +5,7 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main, develop ]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -313,7 +314,7 @@ jobs:
         path: e2e-results.xml
 
   langgraph-dev-test:
-    needs: [setup, quality-checks, test-coverage]
+    needs: [unit-tests, integration-tests, e2e-tests, evaluation-tests]
     runs-on: ubuntu-latest
     strategy:
       matrix:

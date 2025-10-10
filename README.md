@@ -304,29 +304,41 @@ If we already have an existing deployment, this workflow will run the new LangGr
 
 ![Test with Results Workflow](assets/test-with-results.png)
 
-In addition to the more traditional testing phases (unit tests, integration tests, end-to-end tests, etc.), we have added offline evaluations because we want to test the quality of our agent. These evaluations provide comprehensive assessment of the agent's performance using real-world scenarios and data.
+In addition to the more traditional testing phases (unit tests, integration tests, end-to-end tests, etc.), we have added offline evaluations and LangGraph dev server testing because we want to test the quality of our agent. These evaluations provide comprehensive assessment of the agent's performance using real-world scenarios and data.
+
+**New LangGraph Dev Server Test:**
+- **Runs AFTER all other tests pass** (unit, integration, e2e, offline evaluations)
+- Starts a local LangGraph dev server on port 2024
+- Tests the `/ok` health endpoint to ensure server is healthy
+- Validates JSON response `{"ok": true}`
+- Tests LangGraph Studio interface accessibility
+- Ensures the agent works in a real server environment before deployment
+- **Final quality gate** before any deployment proceeds
 
 ```mermaid
 graph TD
     A1[Code or Graph Change] --> B1[Trigger CI Pipeline]
     A2[Prompt Commit in PromptHub] --> B1
     A3[Online Evaluation Alert] --> B1
+    A4[PR Opened] --> B1
 
     subgraph "Testing"
-        B1 --> C1[Run Unit Tests on Nodes]
+        B1 --> C1[Run Unit Tests]
         B1 --> C2[Run Integration Tests]
-        B1 --> C3[Run End to End Tests on Graph]
+        B1 --> C3[Run End to End Tests]
+        B1 --> C4[Run Offline Evaluations]
 
-        C1 --> D1[Run Offline Evaluations]
-        C2 --> D1
-        C3 --> D1
+        C4 --> D1[Evaluate with OpenEvals or AgentEvals]
+        C4 --> D2[Assertions: Hard and Soft]
 
-        D1 --> E1[Evaluate with OpenEvals or AgentEvals]
-        D1 --> E2[Assertions: Hard and Soft]
+        C1 --> E1[Run LangGraph Dev Server Test]
+        C2 --> E1
+        C3 --> E1
+        D1 --> E1
+        D2 --> E1
     end
 
     E1 --> F1[Push to Staging Deployment - Deploy to LangSmith as Development Type]
-    E2 --> F1
 
     F1 --> G1[Run Online Evaluations on Live Data]
     G1 --> H1[Attach Scores to Traces]
@@ -350,12 +362,20 @@ graph TD
 ### Pipeline Stages
 
 1. **Trigger Sources**: Code changes, graph modifications, prompt updates, or online evaluation alerts
-2. **Testing Layers**: Unit tests for individual nodes, integration tests, and end-to-end graph testing
+2. **Testing Layers**: Unit tests for individual nodes, integration tests, end-to-end graph testing, and LangGraph dev server testing
 3. **Evaluation**: Offline evaluations using OpenEvals/AgentEvals with hard and soft assertions
-4. **Staging**: Deployment to staging environment for live data testing
-5. **Quality Gates**: Online evaluations on production-like data with trace scoring
+4. **Quality Gates**: Preview deployments only proceed if all tests pass successfully
+5. **Staging**: Deployment to staging environment for live data testing
 6. **Production**: Promotion to production if all quality thresholds are met
 7. **Monitoring**: Continuous monitoring with alerts and manual review processes
+
+### Preview Deployment Improvements
+
+**Smart Preview Deployment:**
+- **Waits for Tests**: Preview deployments only run after all tests pass successfully
+- **Quality Gate**: No wasted deployments on failing code
+- **Cost Optimization**: Only deploy working code to preview environments
+- **Faster Feedback**: Tests run in parallel, deployment waits for success
 
 ## 📚 Examples
 
