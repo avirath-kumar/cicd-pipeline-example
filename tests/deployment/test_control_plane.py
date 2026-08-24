@@ -559,17 +559,21 @@ def test_self_hosted_rejects_names_that_break_keda():
     # 21 characters is the limit: 9 + 21 + 1 + 32 == 63.
     ok = "text2sql-agent-pr-999"
     assert len(ok) == 21
-    assert control_plane.validate_deployment_name(ok, target="self-hosted") == ok
+    assert control_plane.validate_new_deployment_name(ok, "self-hosted") == ok
 
     too_long = "text2sql-agent-pr-9004"
     assert len(too_long) == 22
     with pytest.raises(ValueError) as excinfo:
-        control_plane.validate_deployment_name(too_long, target="self-hosted")
+        control_plane.validate_new_deployment_name(too_long, "self-hosted")
     assert "64 characters" in str(excinfo.value)
     assert "--name-prefix" in str(excinfo.value)
 
     # SaaS does not use KEDA, so the limit does not apply there.
-    assert control_plane.validate_deployment_name(too_long, target="saas") == too_long
+    assert control_plane.validate_new_deployment_name(too_long, "saas") == too_long
+
+    # An existing deployment with an over-long name must stay findable and
+    # deletable -- the rule only governs creating new ones.
+    assert control_plane.validate_deployment_name(too_long) == too_long
 
 
 @pytest.mark.deployment
@@ -580,3 +584,23 @@ def test_four_digit_pr_numbers_break_the_default_prefix():
         langgraph_api.preview_name("text2sql-agent", 1000, "self-hosted")
     # Production is short enough at any time.
     assert langgraph_api.production_name("text2sql-agent", "self-hosted")
+
+
+@pytest.mark.deployment
+@responses.activate
+def test_over_long_existing_deployment_can_still_be_deleted():
+    """The length rule must not strand a deployment created before it existed."""
+    responses.add(
+        responses.GET,
+        f"{SELF_HOSTED_HOST}/v2/deployments",
+        json={"resources": [{"name": "text2sql-agent-pr-9004", "id": "dep-1"}]},
+        status=200,
+    )
+    responses.add(
+        responses.DELETE, f"{SELF_HOSTED_HOST}/v2/deployments/dep-1", status=204
+    )
+    client = make_client(SELF_HOSTED_HOST)
+    langgraph_api.cleanup_preview(
+        client, langgraph_api.preview_name("text2sql-agent", 9004)
+    )
+    assert responses.calls[-1].request.method == "DELETE"

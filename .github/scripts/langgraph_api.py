@@ -48,6 +48,7 @@ from control_plane import (
     resolve_host,
     source_for_target,
     validate_deployment_name,
+    validate_new_deployment_name,
     write_github_output,
 )
 
@@ -68,11 +69,27 @@ def parse_resource_overrides(raw: Optional[str]) -> Optional[Dict[str, Any]]:
 
 
 def preview_name(prefix: str, pr_number: int, target: Optional[str] = None) -> str:
-    return validate_deployment_name(f"{prefix}-pr-{pr_number}", target=target)
+    """Build a preview deployment name.
+
+    ``target`` applies the stricter self-hosted length rule, and is passed only
+    when creating -- lookup, status and cleanup must still work for an existing
+    deployment whose name predates the rule.
+    """
+    name = f"{prefix}-pr-{pr_number}"
+    return (
+        validate_new_deployment_name(name, target)
+        if target
+        else validate_deployment_name(name)
+    )
 
 
 def production_name(prefix: str, target: Optional[str] = None) -> str:
-    return validate_deployment_name(f"{prefix}-prod", target=target)
+    name = f"{prefix}-prod"
+    return (
+        validate_new_deployment_name(name, target)
+        if target
+        else validate_deployment_name(name)
+    )
 
 
 def build_payload(args: argparse.Namespace, deployment_type: str) -> Dict[str, Any]:
@@ -355,21 +372,21 @@ def main(argv: List[str]) -> int:
 
     try:
         if args.action == "cleanup-preview":
-            cleanup_preview(
-                client, preview_name(args.name_prefix, args.pr_number, args.target)
-            )
+            # No target: an existing deployment whose name predates the length
+            # rule must still be deletable.
+            cleanup_preview(client, preview_name(args.name_prefix, args.pr_number))
         elif args.action == "wait":
             name = (
-                preview_name(args.name_prefix, args.pr_number, args.target)
+                preview_name(args.name_prefix, args.pr_number)
                 if args.pr_number
-                else production_name(args.name_prefix, args.target)
+                else production_name(args.name_prefix)
             )
             wait_for_latest(client, name, args)
         elif args.action == "status":
             name = (
-                preview_name(args.name_prefix, args.pr_number, args.target)
+                preview_name(args.name_prefix, args.pr_number)
                 if args.pr_number
-                else production_name(args.name_prefix, args.target)
+                else production_name(args.name_prefix)
             )
             show_status(client, name)
         else:

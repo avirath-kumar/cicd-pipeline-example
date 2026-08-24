@@ -118,18 +118,23 @@ def normalise_host(host: str, *, allow_insecure: bool = False) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
-def validate_deployment_name(name: str, *, target: Optional[str] = None) -> str:
-    """Return ``name`` if it is safe to use, else raise.
-
-    For self-hosted, also enforce the KEDA-derived HPA length limit, because
-    exceeding it produces a healthy-but-never-ready deployment rather than an
-    error.
-    """
+def validate_deployment_name(name: str) -> str:
+    """Return ``name`` if it is safe to use in a URL path, else raise."""
     if not _NAME_RE.match(name):
         raise ValueError(
             f"Invalid deployment name {name!r}: expected lowercase letters, digits "
             "and dashes, starting and ending with an alphanumeric character."
         )
+    return name
+
+
+def validate_new_deployment_name(name: str, target: str) -> str:
+    """Validate a name we are about to *create* a deployment under.
+
+    Only applied on create: an existing deployment with an over-long name still
+    has to be findable and deletable, which is exactly when you need it most.
+    """
+    validate_deployment_name(name)
     if target == TARGET_SELF_HOSTED and len(name) > MAX_SELF_HOSTED_NAME_LEN:
         raise ValueError(
             f"Deployment name {name!r} is {len(name)} characters; self-hosted "
@@ -257,7 +262,9 @@ class ControlPlaneClient:
         secrets: List[Dict[str, str]],
     ) -> Dict[str, Any]:
         """Create a deployment and return the created resource."""
-        validate_deployment_name(name)
+        validate_new_deployment_name(
+            name, TARGET_SELF_HOSTED if source == "external_docker" else TARGET_SAAS
+        )
         body = {
             "name": name,
             "source": source,
