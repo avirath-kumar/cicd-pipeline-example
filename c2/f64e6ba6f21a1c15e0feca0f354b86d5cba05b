@@ -1,0 +1,23 @@
+.github/workflows/new-lgp-revision.yml
+  s_d030811ff9a859::t_deff0a865f723e 44,135
+.github/workflows/preview-deployment.yml
+  s_d030811ff9a859::t_deff0a865f723e 102
+.github/workflows/test-with-results.yml
+  s_d030811ff9a859::t_deff0a865f723e 28,52,71,97,123,149,176,209,247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "c2f64e6ba6f21a1c15e0feca0f354b86d5cba05b",
+  "prompts": {},
+  "sessions": {
+    "s_d030811ff9a859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71f06db4-eaab-48d4-b92d-693f9c588a48",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Johanson <eric.johanson@langchain.dev>"
+    }
+  }
+}
