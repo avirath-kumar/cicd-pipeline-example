@@ -49,6 +49,18 @@ FAILED_REVISION_STATUSES = frozenset(
 #: Deployment names become DNS labels, so keep them conservative.
 _NAME_RE = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$")
 
+#: Self-hosted autoscaling uses KEDA, which derives an HPA named
+#: ``keda-hpa-<deployment>-<32-char-hash>``. Kubernetes caps object names at 63
+#: characters, so "keda-hpa-" (9) plus the separator (1) plus the hash (32)
+#: leaves only 21 for the deployment name. Exceeding it is nasty: every other
+#: component reconciles and serves traffic, but the autoscaler is rejected, the
+#: revision is never marked ready, and it fails on the platform's timeout with
+#: no reason attached.
+KEDA_HPA_PREFIX_LEN = len("keda-hpa-")
+KEDA_HASH_SUFFIX_LEN = 1 + 32
+MAX_K8S_NAME_LEN = 63
+MAX_SELF_HOSTED_NAME_LEN = MAX_K8S_NAME_LEN - KEDA_HPA_PREFIX_LEN - KEDA_HASH_SUFFIX_LEN
+
 DEFAULT_TIMEOUT = 30.0
 DEFAULT_WAIT_TIMEOUT = 1800.0
 DEFAULT_POLL_INTERVAL = 15.0
@@ -106,12 +118,27 @@ def normalise_host(host: str, *, allow_insecure: bool = False) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
-def validate_deployment_name(name: str) -> str:
-    """Return ``name`` if it is safe to use in a URL path, else raise."""
+def validate_deployment_name(name: str, *, target: Optional[str] = None) -> str:
+    """Return ``name`` if it is safe to use, else raise.
+
+    For self-hosted, also enforce the KEDA-derived HPA length limit, because
+    exceeding it produces a healthy-but-never-ready deployment rather than an
+    error.
+    """
     if not _NAME_RE.match(name):
         raise ValueError(
             f"Invalid deployment name {name!r}: expected lowercase letters, digits "
             "and dashes, starting and ending with an alphanumeric character."
+        )
+    if target == TARGET_SELF_HOSTED and len(name) > MAX_SELF_HOSTED_NAME_LEN:
+        raise ValueError(
+            f"Deployment name {name!r} is {len(name)} characters; self-hosted "
+            f"allows at most {MAX_SELF_HOSTED_NAME_LEN}. KEDA derives an HPA named "
+            f"'keda-hpa-{name}-<32-char-hash>', which would be "
+            f"{KEDA_HPA_PREFIX_LEN + len(name) + KEDA_HASH_SUFFIX_LEN} characters "
+            f"and exceed the {MAX_K8S_NAME_LEN}-character Kubernetes limit. The "
+            "deployment would serve traffic but never be marked ready, then fail "
+            "on timeout. Shorten it with --name-prefix."
         )
     return name
 

@@ -545,3 +545,38 @@ def test_patch_omits_immutable_source_config_fields():
     sent = body.get("source_config") or {}
     for immutable in ("integration_id", "repo_url", "deployment_type", "listener_id"):
         assert immutable not in sent, f"{immutable} must not be sent on a revision"
+
+
+@pytest.mark.deployment
+def test_self_hosted_rejects_names_that_break_keda():
+    """KEDA derives keda-hpa-<name>-<32-char-hash>, capped at 63 characters.
+
+    Exceeding it is the worst kind of failure: every other component reconciles
+    and the deployment serves traffic, but the autoscaler is rejected so the
+    revision is never marked ready and dies on the platform timeout with no
+    reason. Catch it before deploying.
+    """
+    # 21 characters is the limit: 9 + 21 + 1 + 32 == 63.
+    ok = "text2sql-agent-pr-999"
+    assert len(ok) == 21
+    assert control_plane.validate_deployment_name(ok, target="self-hosted") == ok
+
+    too_long = "text2sql-agent-pr-9004"
+    assert len(too_long) == 22
+    with pytest.raises(ValueError) as excinfo:
+        control_plane.validate_deployment_name(too_long, target="self-hosted")
+    assert "64 characters" in str(excinfo.value)
+    assert "--name-prefix" in str(excinfo.value)
+
+    # SaaS does not use KEDA, so the limit does not apply there.
+    assert control_plane.validate_deployment_name(too_long, target="saas") == too_long
+
+
+@pytest.mark.deployment
+def test_four_digit_pr_numbers_break_the_default_prefix():
+    """The default prefix silently breaks once a repo reaches PR #1000."""
+    assert langgraph_api.preview_name("text2sql-agent", 999, "self-hosted")
+    with pytest.raises(ValueError, match="self-hosted allows at most 21"):
+        langgraph_api.preview_name("text2sql-agent", 1000, "self-hosted")
+    # Production is short enough at any time.
+    assert langgraph_api.production_name("text2sql-agent", "self-hosted")

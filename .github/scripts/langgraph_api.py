@@ -67,12 +67,12 @@ def parse_resource_overrides(raw: Optional[str]) -> Optional[Dict[str, Any]]:
     return parsed
 
 
-def preview_name(prefix: str, pr_number: int) -> str:
-    return validate_deployment_name(f"{prefix}-pr-{pr_number}")
+def preview_name(prefix: str, pr_number: int, target: Optional[str] = None) -> str:
+    return validate_deployment_name(f"{prefix}-pr-{pr_number}", target=target)
 
 
-def production_name(prefix: str) -> str:
-    return validate_deployment_name(f"{prefix}-prod")
+def production_name(prefix: str, target: Optional[str] = None) -> str:
+    return validate_deployment_name(f"{prefix}-prod", target=target)
 
 
 def build_payload(args: argparse.Namespace, deployment_type: str) -> Dict[str, Any]:
@@ -355,19 +355,21 @@ def main(argv: List[str]) -> int:
 
     try:
         if args.action == "cleanup-preview":
-            cleanup_preview(client, preview_name(args.name_prefix, args.pr_number))
+            cleanup_preview(
+                client, preview_name(args.name_prefix, args.pr_number, args.target)
+            )
         elif args.action == "wait":
             name = (
-                preview_name(args.name_prefix, args.pr_number)
+                preview_name(args.name_prefix, args.pr_number, args.target)
                 if args.pr_number
-                else production_name(args.name_prefix)
+                else production_name(args.name_prefix, args.target)
             )
             wait_for_latest(client, name, args)
         elif args.action == "status":
             name = (
-                preview_name(args.name_prefix, args.pr_number)
+                preview_name(args.name_prefix, args.pr_number, args.target)
                 if args.pr_number
-                else production_name(args.name_prefix)
+                else production_name(args.name_prefix, args.target)
             )
             show_status(client, name)
         else:
@@ -377,12 +379,18 @@ def main(argv: List[str]) -> int:
                 deploy(
                     client,
                     args,
-                    preview_name(args.name_prefix, args.pr_number),
+                    preview_name(args.name_prefix, args.pr_number, args.target),
                     "dev",
                     secrets,
                 )
             else:
-                deploy(client, args, production_name(args.name_prefix), "prod", secrets)
+                deploy(
+                    client,
+                    args,
+                    production_name(args.name_prefix, args.target),
+                    "prod",
+                    secrets,
+                )
     except (ControlPlaneError, ValueError) as exc:
         die(str(exc))
 

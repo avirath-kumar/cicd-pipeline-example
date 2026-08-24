@@ -134,6 +134,43 @@ reference. If a *known-good* image also fails to deploy as a new deployment
 while existing deployments stay healthy, the cluster is out of capacity rather
 than anything being wrong with your image — that is the check to run first.
 
+## Deployment name length on self-hosted
+
+**Self-hosted deployment names must be 21 characters or fewer.**
+
+Self-hosted autoscaling uses KEDA, which derives an HPA named
+`keda-hpa-<deployment-name>-<32-char-hash>`. Kubernetes caps object names at 63
+characters, and `keda-hpa-` plus the separator plus the hash already consumes 42,
+leaving 21.
+
+Going over produces the worst failure mode in this whole pipeline. Every other
+component reconciles — Postgres, Redis, the queue, the agent — the pods come up
+healthy and **serve traffic normally**, but KEDA's admission webhook rejects the
+autoscaler:
+
+```
+admission webhook "vscaledobject.kb.io" denied the request: HPA name
+"keda-hpa-<name>-<hash>" is 64 characters long; must be no more than 63
+```
+
+The revision is then never marked ready and fails on the platform's timeout
+after ten minutes with **no reason attached**. A deployment that works is
+reported as failed.
+
+With the default `text2sql-agent` prefix, previews are `text2sql-agent-pr-<n>`:
+
+| PR number | Name length | Derived HPA | Result |
+|---|---|---|---|
+| 1–999 | up to 21 | up to 63 | works |
+| **1000 and above** | **22+** | **64+** | **breaks** |
+
+So this breaks silently the first time the repository reaches PR #1000. Shorten
+the prefix with `--name-prefix` (or the `DEPLOYMENT_NAME_PREFIX` variable) well
+before then — `t2sql` leaves room for a seven-digit PR number.
+
+`langgraph_api.py` validates this before deploying and fails immediately with an
+explanation rather than letting it time out.
+
 ## Naming
 
 - Preview deployments: `text2sql-agent-pr-<pr-number>` (deployment type `dev`)
@@ -182,6 +219,7 @@ for the full table of repository variables and secrets.
 | `Refusing to send an API key over plain http` | Use https, or pass `--allow-insecure-host` for an internal instance |
 | `LANGSMITH_GITHUB_INTEGRATION_ID is required` | Fetch it from `GET /v1/integrations/github/install` |
 | Preview never deploys | The pull request is from a fork — previews are skipped by design |
+| Pods healthy and serving, but the revision reports `DEPLOY_FAILED` | The deployment name exceeds 21 characters, so KEDA's HPA name exceeds 63 and the autoscaler is rejected. See *Deployment name length on self-hosted* |
 | `DEPLOY_FAILED` with no reason, after ~600s in `DEPLOYING` | The pods never became ready. Usually cluster capacity — see *Sizing self-hosted previews*. Confirm by deploying a known-good image as a new deployment: if that fails too, it is the cluster, not your image |
 | `409 ... a project in LangSmith named X already exists` | See *Reopened pull requests* below |
 
