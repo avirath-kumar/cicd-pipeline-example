@@ -42,6 +42,9 @@ from control_plane import (
     build_saas_payload,
     build_self_hosted_payload,
     collect_secrets,
+)
+from control_plane import deployment_url as cp_deployment_url
+from control_plane import (
     die,
     enable_line_buffering,
     print_deployment,
@@ -90,6 +93,24 @@ def production_name(prefix: str, target: Optional[str] = None) -> str:
         if target
         else validate_deployment_name(name)
     )
+
+
+def resolve_name(args, *, target: Optional[str] = None) -> str:
+    """Work out which deployment this invocation refers to.
+
+    An explicit --name wins; otherwise fall back to the pull-request convention.
+    ``target`` is passed only when creating, so the stricter self-hosted length
+    rule does not stop us finding or deleting an existing deployment.
+    """
+    if args.name:
+        return (
+            validate_new_deployment_name(args.name, target)
+            if target
+            else validate_deployment_name(args.name)
+        )
+    if args.pr_number:
+        return preview_name(args.name_prefix, args.pr_number, target)
+    return production_name(args.name_prefix, target)
 
 
 def build_payload(args: argparse.Namespace, deployment_type: str) -> Dict[str, Any]:
@@ -173,7 +194,7 @@ def deploy(
 
     write_github_output(
         deployment_id=str(deployment.get("id", "")),
-        deployment_url=str(deployment.get("url") or ""),
+        deployment_url=str(cp_deployment_url(deployment) or ""),
         deployment_name=name,
     )
     return deployment
@@ -278,6 +299,13 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         "self-hosted caps the whole name at 21 characters, see --help notes.",
     )
     parser.add_argument("--pr-number", type=int, help="PR number, for preview actions.")
+    parser.add_argument(
+        "--name",
+        default=None,
+        help="Exact deployment name, bypassing the <prefix>-pr-<n> convention. "
+        "For long-lived deployments such as a demo that should not be named "
+        "after a pull request.",
+    )
 
     # Control plane location.
     parser.add_argument(
@@ -374,8 +402,14 @@ def main(argv: List[str]) -> int:
     args = parse_args(argv)
     enable_line_buffering()
 
-    if args.action in ("deploy-preview", "cleanup-preview") and not args.pr_number:
-        die(f"--pr-number is required for {args.action}.")
+    # --name supplies the deployment directly, so a PR number is only required
+    # when the name has to be derived from one.
+    if (
+        args.action in ("deploy-preview", "cleanup-preview")
+        and not args.pr_number
+        and not args.name
+    ):
+        die(f"--pr-number or --name is required for {args.action}.")
     if args.pr_number is not None and args.pr_number <= 0:
         die(f"--pr-number must be positive, got {args.pr_number}.")
 
@@ -398,44 +432,28 @@ def main(argv: List[str]) -> int:
         if args.action == "cleanup-preview":
             # No target: an existing deployment whose name predates the length
             # rule must still be deletable.
-            cleanup_preview(client, preview_name(args.name_prefix, args.pr_number))
+            cleanup_preview(client, resolve_name(args))
         elif args.action == "wait":
-            name = (
-                preview_name(args.name_prefix, args.pr_number)
-                if args.pr_number
-                else production_name(args.name_prefix)
-            )
+            name = resolve_name(args)
             wait_for_latest(client, name, args)
         elif args.action == "interrupt":
-            name = (
-                preview_name(args.name_prefix, args.pr_number)
-                if args.pr_number
-                else production_name(args.name_prefix)
-            )
+            name = resolve_name(args)
             interrupt_latest(client, name)
         elif args.action == "status":
-            name = (
-                preview_name(args.name_prefix, args.pr_number)
-                if args.pr_number
-                else production_name(args.name_prefix)
-            )
+            name = resolve_name(args)
             show_status(client, name)
         else:
             secrets = collect_secrets(args.secret_env or DEFAULT_SECRET_ENV_VARS)
             print(f"🔐 Forwarding secrets: {', '.join(s['name'] for s in secrets)}")
             if args.action == "deploy-preview":
                 deploy(
-                    client,
-                    args,
-                    preview_name(args.name_prefix, args.pr_number, args.target),
-                    "dev",
-                    secrets,
+                    client, args, resolve_name(args, target=args.target), "dev", secrets
                 )
             else:
                 deploy(
                     client,
                     args,
-                    production_name(args.name_prefix, args.target),
+                    resolve_name(args, target=args.target),
                     "prod",
                     secrets,
                 )
