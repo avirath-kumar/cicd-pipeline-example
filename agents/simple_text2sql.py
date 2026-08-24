@@ -72,12 +72,17 @@ def build_llm():
     model = os.environ.get("LLM_MODEL") or DEFAULT_MODELS[route]
 
     if route == "gateway":
-        api_key = os.environ.get("LANGSMITH_API_KEY")
+        # LLM_GATEWAY_API_KEY first: a self-hosted deployment calling Cloud's
+        # gateway needs a Cloud key, which is not the same as the LANGSMITH_API_KEY
+        # its own instance issues. On Cloud the two coincide and the fallback works.
+        api_key = os.environ.get("LLM_GATEWAY_API_KEY") or os.environ.get(
+            "LANGSMITH_API_KEY"
+        )
         if not api_key:
             raise ValueError(
-                "The LLM gateway authenticates with LANGSMITH_API_KEY, but that "
-                "variable is empty. LangSmith Cloud sets it for you; elsewhere, "
-                "set it yourself."
+                "The LLM gateway needs a LangSmith key: set LLM_GATEWAY_API_KEY, "
+                "or LANGSMITH_API_KEY when they are the same instance. LangSmith "
+                "Cloud injects LANGSMITH_API_KEY into deployments for you."
             )
         return ChatOpenAI(
             model=model,
@@ -167,7 +172,36 @@ def create_agent(llm, db):
     return builder.compile()
 
 
-llm = build_llm()
+class LazyChatModel:
+    """Defer model construction until the first call.
+
+    The Agent Server imports this module during startup, and every chat model
+    validates its credentials in the constructor. Building eagerly means the
+    module cannot be imported without a key -- which fails the deployment at
+    import rather than at the call, and forces credentials on test jobs that
+    only ever use mocks.
+    """
+
+    def __init__(self, factory):
+        self._factory = factory
+        self._model = None
+
+    def _resolve(self):
+        if self._model is None:
+            self._model = self._factory()
+        return self._model
+
+    def invoke(self, *args, **kwargs):
+        return self._resolve().invoke(*args, **kwargs)
+
+    async def ainvoke(self, *args, **kwargs):
+        return await self._resolve().ainvoke(*args, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._resolve(), name)
+
+
+llm = LazyChatModel(build_llm)
 # Pass the factory, not an engine: the Agent Server imports this module
 # during startup, and a network call there would block the deployment.
 db = SQLDatabase(get_engine_for_chinook_db)
