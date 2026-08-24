@@ -86,5 +86,7 @@ def create_agent(llm, db):
 
 
 llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-db = SQLDatabase(get_engine_for_chinook_db())
+# Pass the factory, not an engine: the Agent Server imports this module
+# during startup, and a network call there would block the deployment.
+db = SQLDatabase(get_engine_for_chinook_db)
 agent = create_agent(llm, db)

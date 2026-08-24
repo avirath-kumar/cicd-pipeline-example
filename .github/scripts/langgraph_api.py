@@ -42,6 +42,7 @@ from control_plane import (
     build_self_hosted_payload,
     collect_secrets,
     die,
+    enable_line_buffering,
     print_deployment,
     resolve_host,
     source_for_target,
@@ -252,6 +253,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
 
 def main(argv: List[str]) -> int:
     args = parse_args(argv)
+    enable_line_buffering()
 
     if args.action in ("deploy-preview", "cleanup-preview") and not args.pr_number:
         die(f"--pr-number is required for {args.action}.")

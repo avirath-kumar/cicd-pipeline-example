@@ -19,6 +19,7 @@ from control_plane import (
     ControlPlaneClient,
     ControlPlaneError,
     die,
+    enable_line_buffering,
     resolve_host,
 )
 
@@ -121,8 +122,13 @@ def write_markdown_report(report: Dict[str, Any], output_file: str) -> None:
         return
 
     heading = report["deployment_type"].title()
+    # The deployment resource can sit at READY while its newest revision failed.
+    # Lead with the worse of the two, so a green tick in a PR comment always
+    # means the code actually shipped.
+    revision_failed = "FAILED" in report["revision_status"]
+    heading_emoji = "❌" if revision_failed else report["status_emoji"]
     lines += [
-        f"### {report['status_emoji']} {heading} deployment: `{report['deployment_name']}`",
+        f"### {heading_emoji} {heading} deployment: `{report['deployment_name']}`",
         "",
         "| Property | Value |",
         "|----------|-------|",
@@ -199,6 +205,7 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--allow-insecure-host", action="store_true")
     parser.add_argument("--output", "-o", default="deployment_comment.md")
     args = parser.parse_args(argv)
+    enable_line_buffering()
 
     try:
         client = ControlPlaneClient(

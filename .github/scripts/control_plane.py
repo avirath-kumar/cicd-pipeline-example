@@ -58,6 +58,15 @@ class ControlPlaneError(RuntimeError):
     """Raised when the control plane returns an unexpected response."""
 
 
+def enable_line_buffering() -> None:
+    """Stream output line by line so CI logs update during long polls."""
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+        sys.stderr.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):  # pragma: no cover - very old runtimes
+        pass
+
+
 def normalise_host(host: str, *, allow_insecure: bool = False) -> str:
     """Validate a control plane host and return it without a trailing slash.
 
@@ -293,7 +302,12 @@ class ControlPlaneClient:
             if status == "DEPLOYED":
                 return revision
             if status in FAILED_REVISION_STATUSES:
-                message = revision.get("status_message") or "no detail provided"
+                # Not every control plane version populates `status_message`, so
+                # point at the logs rather than reporting an empty reason.
+                message = revision.get("status_message") or (
+                    "no reason returned by the control plane - check the server "
+                    "logs for this revision in the LangSmith UI"
+                )
                 raise ControlPlaneError(
                     f"Revision {revision_id} finished as {status}: {message}"
                 )

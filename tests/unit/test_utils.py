@@ -1,7 +1,13 @@
+import subprocess
+import sys
+import textwrap
+from pathlib import Path
+
 import pytest
 from sqlalchemy import text
 
 from agents.utils import (
+    SQLDatabase,
     get_db_table_names,
     get_detailed_table_info,
     get_engine_for_chinook_db,
@@ -55,3 +61,50 @@ def test_get_schema_overview():
     track_schema = overview["Track"]
     assert isinstance(track_schema, list)
     assert any(col["name"] == "Name" for col in track_schema)
+
+
+@pytest.mark.utils
+def test_sqldatabase_defers_engine_creation():
+    """A callable engine source must not be resolved until the db is used.
+
+    The Agent Server imports the graph during startup. If that import opens a
+    network connection, a cluster with restricted egress hangs startup and the
+    whole deployment times out.
+    """
+    calls = []
+
+    def factory():
+        calls.append(1)
+        return get_engine_for_chinook_db()
+
+    db = SQLDatabase(factory)
+    assert calls == [], "engine was built at construction time"
+
+    db.get_usable_table_names()
+    assert calls == [1], "engine should be built on first use"
+
+    db.run("SELECT 1")
+    assert calls == [1], "engine should be reused, not rebuilt"
+
+
+@pytest.mark.utils
+def test_importing_the_graph_makes_no_http_calls():
+    """Guards the deployment-startup path in a fresh interpreter."""
+    script = textwrap.dedent("""
+        import requests
+        def blocked(*args, **kwargs):
+            raise AssertionError("HTTP call during module import")
+        requests.get = blocked
+        requests.Session.get = lambda self, *a, **k: blocked()
+
+        import agents.simple_text2sql  # noqa: F401
+        print("OK")
+        """)
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        cwd=Path(__file__).resolve().parents[2],
+    )
+    assert result.returncode == 0, result.stderr
+    assert "OK" in result.stdout

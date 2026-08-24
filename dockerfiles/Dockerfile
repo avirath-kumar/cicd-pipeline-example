@@ -5,7 +5,7 @@ ADD . /deps/text2sql-agent
 # -- End of local package . --
 
 # -- Installing all local dependencies --
-RUN PYTHONDONTWRITEBYTECODE=1 uv pip install --system --no-cache-dir -c /api/constraints.txt -e /deps/*
+RUN for dep in /deps/*; do             echo "Installing $dep";             if [ -d "$dep" ]; then                 echo "Installing $dep";                 (cd "$dep" && PYTHONDONTWRITEBYTECODE=1 uv pip install --system --no-cache-dir -c /api/constraints.txt -e .);             fi;         done
 # -- End of local dependencies install --
 ENV LANGSERVE_GRAPHS='{"simple_text2sql": "/deps/text2sql-agent/agents/simple_text2sql.py:agent"}'
 

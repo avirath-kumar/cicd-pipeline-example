@@ -13,6 +13,7 @@ from control_plane import (
     ControlPlaneClient,
     ControlPlaneError,
     die,
+    enable_line_buffering,
     resolve_host,
 )
 
@@ -31,6 +32,7 @@ def main(argv: List[str]) -> int:
     parser.add_argument("--allow-insecure-host", action="store_true")
     parser.add_argument("--name-contains", default=None)
     args = parser.parse_args(argv)
+    enable_line_buffering()
 
     try:
         client = ControlPlaneClient(

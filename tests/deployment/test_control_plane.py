@@ -13,6 +13,13 @@ import responses
 
 from .conftest import control_plane, langgraph_api
 
+
+def _load_report_module():
+    from .conftest import _load
+
+    return _load("report_deployment")
+
+
 API_KEY = "test-api-key"
 WORKSPACE_ID = "11111111-2222-3333-4444-555555555555"
 SAAS_HOST = "https://api.host.langchain.com"
@@ -393,3 +400,42 @@ def test_print_deployment_never_prints_secret_values(capsys):
     output = capsys.readouterr().out
     assert "OPENAI_API_KEY" in output
     assert "test-secret-value" not in output
+
+
+@pytest.mark.deployment
+@responses.activate
+def test_report_leads_with_failure_when_revision_failed(tmp_path):
+    """A deployment can be READY while its newest revision failed.
+
+    The PR comment must not show a green tick in that case -- a reviewer skims
+    the heading and would otherwise read a failed deploy as a success.
+    """
+    report_deployment = _load_report_module()
+    responses.add(
+        responses.GET,
+        f"{SAAS_HOST}/v2/deployments",
+        json={
+            "resources": [
+                {"name": "text2sql-agent-pr-999", "id": "dep-1", "status": "READY"}
+            ]
+        },
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        f"{SAAS_HOST}/v2/deployments/dep-1/revisions",
+        json={"resources": [{"id": "rev-1", "status": "DEPLOY_FAILED"}]},
+        status=200,
+    )
+
+    report = report_deployment.build_report(
+        make_client(), "text2sql-agent-pr-999", "preview", "self-hosted"
+    )
+    out = tmp_path / "comment.md"
+    report_deployment.write_markdown_report(report, str(out))
+    body = out.read_text()
+
+    heading = next(line for line in body.splitlines() if line.startswith("### "))
+    assert "❌" in heading, heading
+    assert "✅" not in heading, heading
+    assert "DEPLOY_FAILED" in body
