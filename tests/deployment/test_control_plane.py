@@ -614,3 +614,48 @@ def test_default_prefix_survives_large_pr_numbers():
         name = langgraph_api.preview_name(args.name_prefix, pr, "self-hosted")
         assert len(name) <= control_plane.MAX_SELF_HOSTED_NAME_LEN, name
     assert langgraph_api.production_name(args.name_prefix, "self-hosted")
+
+
+@pytest.mark.deployment
+@responses.activate
+def test_interrupt_cancels_an_in_progress_revision():
+    """A stuck revision blocks later ones, so CI needs a way to cancel it."""
+    responses.add(
+        responses.GET,
+        f"{SAAS_HOST}/v2/deployments",
+        json={"resources": [{"name": "t2sql-pr-1", "id": "dep-1"}]},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        f"{SAAS_HOST}/v2/deployments/dep-1/revisions",
+        json={"resources": [{"id": "rev-1", "status": "DEPLOYING"}]},
+        status=200,
+    )
+    responses.add(
+        responses.POST,
+        f"{SAAS_HOST}/v2/deployments/dep-1/revisions/rev-1/interruption",
+        status=204,
+    )
+    langgraph_api.interrupt_latest(make_client(), "t2sql-pr-1")
+    assert responses.calls[-1].request.url.endswith("/interruption")
+
+
+@pytest.mark.deployment
+@responses.activate
+def test_interrupt_is_a_noop_on_a_settled_revision():
+    responses.add(
+        responses.GET,
+        f"{SAAS_HOST}/v2/deployments",
+        json={"resources": [{"name": "t2sql-pr-1", "id": "dep-1"}]},
+        status=200,
+    )
+    responses.add(
+        responses.GET,
+        f"{SAAS_HOST}/v2/deployments/dep-1/revisions",
+        json={"resources": [{"id": "rev-1", "status": "DEPLOYED"}]},
+        status=200,
+    )
+    langgraph_api.interrupt_latest(make_client(), "t2sql-pr-1")
+    # No interruption call attempted.
+    assert not any("interruption" in c.request.url for c in responses.calls)

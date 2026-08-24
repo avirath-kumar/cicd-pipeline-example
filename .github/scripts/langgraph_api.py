@@ -213,6 +213,28 @@ def wait_for_latest(client: ControlPlaneClient, name: str, args) -> None:
     print_deployment(client.find_deployment(name) or deployment)
 
 
+def interrupt_latest(client: ControlPlaneClient, name: str) -> None:
+    """Cancel the newest revision if it is still in progress.
+
+    Use this to unblock a deployment whose revision is stuck: later revisions
+    queue behind it rather than superseding it.
+    """
+    deployment = client.find_deployment(name)
+    if not deployment:
+        die(f"No deployment named {name}.")
+    revisions = client.list_revisions(deployment["id"])
+    if not revisions:
+        die(f"Deployment {name} has no revisions.")
+    latest = revisions[0]
+    status = latest.get("status", "UNKNOWN")
+    if status in ("DEPLOYED", "INTERRUPTED") or "FAILED" in status:
+        print(f"ℹ️  Revision {latest['id']} is already {status}; nothing to interrupt.")
+        return
+    print(f"🛑 Interrupting revision {latest['id']} ({status}).")
+    client.interrupt_revision(deployment["id"], latest["id"])
+    print("✅ Interrupted.")
+
+
 def show_status(client: ControlPlaneClient, name: str) -> None:
     deployment = client.find_deployment(name)
     if not deployment:
@@ -246,6 +268,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
             "cleanup-preview",
             "status",
             "wait",
+            "interrupt",
         ],
     )
     parser.add_argument(
@@ -383,6 +406,13 @@ def main(argv: List[str]) -> int:
                 else production_name(args.name_prefix)
             )
             wait_for_latest(client, name, args)
+        elif args.action == "interrupt":
+            name = (
+                preview_name(args.name_prefix, args.pr_number)
+                if args.pr_number
+                else production_name(args.name_prefix)
+            )
+            interrupt_latest(client, name)
         elif args.action == "status":
             name = (
                 preview_name(args.name_prefix, args.pr_number)

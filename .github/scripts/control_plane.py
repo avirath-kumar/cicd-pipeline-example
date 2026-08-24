@@ -316,6 +316,21 @@ class ControlPlaneClient:
         )
         return response.json()
 
+    def interrupt_revision(self, deployment_id: str, revision_id: str) -> None:
+        """Cancel an in-progress build or deploy.
+
+        A revision stuck building or crash-looping holds the queue: later
+        revisions sit in QUEUED behind it until it times out. Interrupting it
+        releases them immediately.
+        """
+        self._request(
+            "POST",
+            self._url(
+                "deployments", deployment_id, "revisions", revision_id, "interruption"
+            ),
+            expected=(200, 202, 204),
+        )
+
     def delete_deployment(self, deployment_id: str) -> None:
         self._request(
             "DELETE", self._url("deployments", deployment_id), expected=(200, 204)
