@@ -1,0 +1,25 @@
+.github/scripts/control_plane.py
+  s_d030811ff9a859::t_76a90bd592fb85 531-543,546
+tests/deployment/test_control_plane.py
+  s_d030811ff9a859::t_76a90bd592fb85 685-706
+.github/scripts/langgraph_api.py
+  s_d030811ff9a859::t_76a90bd592fb85 45-47,197
+.github/scripts/report_deployment.py
+  s_d030811ff9a859::t_76a90bd592fb85 21,98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "7c5ce8f538a8196232f0a74e4fda737de7cc8515",
+  "prompts": {},
+  "sessions": {
+    "s_d030811ff9a859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71f06db4-eaab-48d4-b92d-693f9c588a48",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Johanson <eric.johanson@langchain.dev>"
+    }
+  }
+}
