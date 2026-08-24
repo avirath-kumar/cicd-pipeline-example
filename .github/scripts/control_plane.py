@@ -262,11 +262,18 @@ class ControlPlaneClient:
         deployment_id: str,
         source_revision_config: Dict[str, Any],
         secrets: Optional[List[Dict[str, str]]] = None,
+        source_config: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Create a new revision of an existing deployment."""
+        """Create a new revision of an existing deployment.
+
+        Pass ``source_config`` to change resource requests (CPU, memory, scale)
+        on an existing deployment rather than having to recreate it.
+        """
         body: Dict[str, Any] = {"source_revision_config": source_revision_config}
         if secrets is not None:
             body["secrets"] = secrets
+        if source_config is not None:
+            body["source_config"] = source_config
         response = self._request(
             "PATCH",
             self._url("deployments", deployment_id),
@@ -386,6 +393,8 @@ def build_self_hosted_payload(
     max_scale: int = 1,
     cpu: float = 1,
     memory_mb: int = 1024,
+    queue_cpu: Optional[float] = None,
+    queue_memory_mb: Optional[int] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Build ``source_config``/``source_revision_config`` for a self-hosted instance.
 
@@ -395,14 +404,21 @@ def build_self_hosted_payload(
     if not image_uri:
         raise ControlPlaneError("--image-uri is required for self-hosted deployments.")
 
-    source_config: Dict[str, Any] = {
-        "resource_spec": {
-            "min_scale": min_scale,
-            "max_scale": max_scale,
-            "cpu": cpu,
-            "memory_mb": memory_mb,
-        }
+    # The queue runs as its own deployment and defaults to the same CPU and
+    # memory as the agent, so a request of 1 CPU actually reserves 2. Set the
+    # queue explicitly to avoid unschedulable pods on a small cluster.
+    resource_spec: Dict[str, Any] = {
+        "min_scale": min_scale,
+        "max_scale": max_scale,
+        "cpu": cpu,
+        "memory_mb": memory_mb,
     }
+    if queue_cpu is not None:
+        resource_spec["queue_cpu"] = queue_cpu
+    if queue_memory_mb is not None:
+        resource_spec["queue_memory_mb"] = queue_memory_mb
+
+    source_config: Dict[str, Any] = {"resource_spec": resource_spec}
     if listener_id:
         source_config["listener_id"] = listener_id
 

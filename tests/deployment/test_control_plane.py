@@ -473,3 +473,75 @@ def test_leftover_tracing_project_gives_actionable_error():
     assert "Delete the tracing project" in message
     # Still a ControlPlaneError, so existing handling keeps working.
     assert isinstance(excinfo.value, control_plane.ControlPlaneError)
+
+
+@pytest.mark.deployment
+def test_queue_resources_can_be_set_explicitly():
+    """queue_cpu defaults to cpu, so 1 CPU silently reserves 2 on the cluster."""
+    default = control_plane.build_self_hosted_payload(image_uri="img:1", cpu=1)
+    assert "queue_cpu" not in default["source_config"]["resource_spec"]
+
+    tuned = control_plane.build_self_hosted_payload(
+        image_uri="img:1", cpu=0.25, memory_mb=512, queue_cpu=0.25, queue_memory_mb=512
+    )
+    spec = tuned["source_config"]["resource_spec"]
+    assert spec["cpu"] == 0.25
+    assert spec["queue_cpu"] == 0.25
+    assert spec["queue_memory_mb"] == 512
+
+
+@pytest.mark.deployment
+@responses.activate
+def test_patch_can_update_resources():
+    responses.add(
+        responses.PATCH,
+        f"{SAAS_HOST}/v2/deployments/dep-1",
+        json={"id": "dep-1"},
+        status=200,
+    )
+    make_client().patch_deployment(
+        "dep-1",
+        {"image_uri": "img:2"},
+        source_config={"resource_spec": {"cpu": 0.25}},
+    )
+    body = json.loads(responses.calls[0].request.body)
+    assert body["source_config"]["resource_spec"]["cpu"] == 0.25
+
+
+@pytest.mark.deployment
+@responses.activate
+def test_patch_omits_immutable_source_config_fields():
+    """repo_url, integration_id, deployment_type and listener_id are fixed at
+    creation; resending them on a revision would be rejected."""
+    responses.add(
+        responses.GET,
+        f"{SAAS_HOST}/v2/deployments",
+        json={"resources": [{"name": "text2sql-agent-prod", "id": "dep-1"}]},
+        status=200,
+    )
+    responses.add(
+        responses.PATCH,
+        f"{SAAS_HOST}/v2/deployments/dep-1",
+        json={"id": "dep-1", "latest_revision_id": None},
+        status=200,
+    )
+
+    args = langgraph_api.parse_args(
+        [
+            "--target",
+            "saas",
+            "--action",
+            "deploy-production",
+            "--repo-url",
+            "https://github.com/org/repo",
+        ]
+    )
+    import os as _os
+
+    _os.environ["LANGSMITH_GITHUB_INTEGRATION_ID"] = "integration-1"
+    langgraph_api.deploy(make_client(), args, "text2sql-agent-prod", "prod", [])
+
+    body = json.loads(responses.calls[-1].request.body)
+    sent = body.get("source_config") or {}
+    for immutable in ("integration_id", "repo_url", "deployment_type", "listener_id"):
+        assert immutable not in sent, f"{immutable} must not be sent on a revision"

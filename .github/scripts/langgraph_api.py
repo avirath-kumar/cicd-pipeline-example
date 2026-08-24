@@ -79,6 +79,8 @@ def build_payload(args: argparse.Namespace, deployment_type: str) -> Dict[str, A
         max_scale=args.max_scale,
         cpu=args.cpu,
         memory_mb=args.memory_mb,
+        queue_cpu=args.queue_cpu,
+        queue_memory_mb=args.queue_memory_mb,
     )
 
 
@@ -97,10 +99,19 @@ def deploy(
         print(
             f"📝 Found existing deployment {name} ({existing['id']}); adding a revision."
         )
+        # integration_id, repo_url, deployment_type and listener_id are all fixed
+        # at creation, so only resend the part the API lets us change.
+        source_config = payload.get("source_config") or {}
+        mutable_config = (
+            {"resource_spec": source_config["resource_spec"]}
+            if "resource_spec" in source_config
+            else None
+        )
         deployment = client.patch_deployment(
             existing["id"],
             payload["source_revision_config"],
             secrets=secrets,
+            source_config=mutable_config,
         )
     else:
         print(f"🆕 Creating deployment {name}.")
@@ -230,6 +241,19 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument("--max-scale", type=int, default=1)
     parser.add_argument("--cpu", type=float, default=1)
     parser.add_argument("--memory-mb", type=int, default=1024)
+    parser.add_argument(
+        "--queue-cpu",
+        type=float,
+        default=None,
+        help="CPU for the queue deployment (self-hosted). Defaults to --cpu, so "
+        "leaving it unset reserves double the CPU you asked for.",
+    )
+    parser.add_argument(
+        "--queue-memory-mb",
+        type=int,
+        default=None,
+        help="Memory for the queue deployment (self-hosted). Defaults to --memory-mb.",
+    )
 
     # Secrets and polling.
     parser.add_argument(
