@@ -1,0 +1,29 @@
+.github/scripts/langgraph_api.py
+  s_d030811ff9a859::t_1a0102d25baa62 253-255
+.github/workflows/preview-deployment.yml
+  s_d030811ff9a859::t_1a0102d25baa62 31-33,145
+.github/workflows/new-lgp-revision.yml
+  s_d030811ff9a859::t_1a0102d25baa62 16-18,174
+README.md
+  s_d030811ff9a859::t_89626b94ab4ed5 117
+.github/workflows/DEPLOYMENT_PIPELINE.md
+  s_d030811ff9a859::t_89626b94ab4ed5 160-162,164,166-167,169-170,177-178,236
+tests/deployment/test_control_plane.py
+  s_d030811ff9a859::t_89626b94ab4ed5 607-616
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "b55417e53986233bf50b2a94933ed3c3aa29e27f",
+  "prompts": {},
+  "sessions": {
+    "s_d030811ff9a859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71f06db4-eaab-48d4-b92d-693f9c588a48",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Johanson <eric.johanson@langchain.dev>"
+    }
+  }
+}
