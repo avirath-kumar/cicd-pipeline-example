@@ -27,9 +27,10 @@ Credentials are read from the environment, never from argv:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from control_plane import (
     DEFAULT_POLL_INTERVAL,
@@ -51,6 +52,19 @@ from control_plane import (
 )
 
 DEFAULT_SECRET_ENV_VARS = ["OPENAI_API_KEY"]
+
+
+def parse_resource_overrides(raw: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Parse the --resource-spec JSON blob."""
+    if not raw:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ControlPlaneError(f"--resource-spec is not valid JSON: {exc}") from exc
+    if not isinstance(parsed, dict):
+        raise ControlPlaneError("--resource-spec must be a JSON object.")
+    return parsed
 
 
 def preview_name(prefix: str, pr_number: int) -> str:
@@ -81,6 +95,7 @@ def build_payload(args: argparse.Namespace, deployment_type: str) -> Dict[str, A
         memory_mb=args.memory_mb,
         queue_cpu=args.queue_cpu,
         queue_memory_mb=args.queue_memory_mb,
+        resource_overrides=parse_resource_overrides(args.resource_spec),
     )
 
 
@@ -157,6 +172,30 @@ def cleanup_preview(client: ControlPlaneClient, name: str) -> None:
     print("✅ Deleted.")
 
 
+def wait_for_latest(client: ControlPlaneClient, name: str, args) -> None:
+    """Block until the deployment's newest revision settles.
+
+    Useful when a revision already exists -- re-running a deploy just to watch
+    it would create another revision.
+    """
+    deployment = client.find_deployment(name)
+    if not deployment:
+        die(f"No deployment named {name}.")
+    revisions = client.list_revisions(deployment["id"])
+    if not revisions:
+        die(f"Deployment {name} has no revisions to wait on.")
+    revision_id = revisions[0]["id"]
+    print(f"⏳ Waiting for revision {revision_id}...")
+    client.wait_for_revision(
+        deployment["id"],
+        revision_id,
+        timeout=args.wait_timeout,
+        interval=args.poll_interval,
+    )
+    print("✅ Revision deployed.")
+    print_deployment(client.find_deployment(name) or deployment)
+
+
 def show_status(client: ControlPlaneClient, name: str) -> None:
     deployment = client.find_deployment(name)
     if not deployment:
@@ -184,7 +223,13 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     parser.add_argument(
         "--action",
         required=True,
-        choices=["deploy-preview", "deploy-production", "cleanup-preview", "status"],
+        choices=[
+            "deploy-preview",
+            "deploy-production",
+            "cleanup-preview",
+            "status",
+            "wait",
+        ],
     )
     parser.add_argument(
         "--name-prefix",
@@ -254,6 +299,15 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
         default=None,
         help="Memory for the queue deployment (self-hosted). Defaults to --memory-mb.",
     )
+    parser.add_argument(
+        "--resource-spec",
+        default=os.environ.get("DEPLOYMENT_RESOURCE_SPEC"),
+        metavar="JSON",
+        help="Extra resource_spec fields as JSON, merged over the flags above. "
+        "A deployment provisions a Postgres and a Redis alongside the agent and "
+        "queue, each with its own request, e.g. "
+        '\'{"db_cpu": 0.25, "redis_cpu": 0.1, "db_storage_gi": 10}\'.',
+    )
 
     # Secrets and polling.
     parser.add_argument(
@@ -302,6 +356,13 @@ def main(argv: List[str]) -> int:
     try:
         if args.action == "cleanup-preview":
             cleanup_preview(client, preview_name(args.name_prefix, args.pr_number))
+        elif args.action == "wait":
+            name = (
+                preview_name(args.name_prefix, args.pr_number)
+                if args.pr_number
+                else production_name(args.name_prefix)
+            )
+            wait_for_latest(client, name, args)
         elif args.action == "status":
             name = (
                 preview_name(args.name_prefix, args.pr_number)

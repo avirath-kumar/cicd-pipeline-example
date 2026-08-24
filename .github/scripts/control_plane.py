@@ -395,6 +395,7 @@ def build_self_hosted_payload(
     memory_mb: int = 1024,
     queue_cpu: Optional[float] = None,
     queue_memory_mb: Optional[int] = None,
+    resource_overrides: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """Build ``source_config``/``source_revision_config`` for a self-hosted instance.
 
@@ -417,6 +418,14 @@ def build_self_hosted_payload(
         resource_spec["queue_cpu"] = queue_cpu
     if queue_memory_mb is not None:
         resource_spec["queue_memory_mb"] = queue_memory_mb
+
+    # A deployment provisions four workloads -- agent, queue, Postgres and Redis
+    # -- each with its own CPU and memory request. Only the first two have named
+    # arguments here, so allow the rest (db_cpu, redis_cpu, db_storage_gi, ...)
+    # to be set directly. On a small cluster the Postgres StatefulSet is often
+    # the one that cannot be scheduled.
+    if resource_overrides:
+        resource_spec.update(resource_overrides)
 
     source_config: Dict[str, Any] = {"resource_spec": resource_spec}
     if listener_id:
