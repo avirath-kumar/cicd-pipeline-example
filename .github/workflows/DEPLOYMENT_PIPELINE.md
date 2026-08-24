@@ -134,6 +134,26 @@ reference. If a *known-good* image also fails to deploy as a new deployment
 while existing deployments stay healthy, the cluster is out of capacity rather
 than anything being wrong with your image — that is the check to run first.
 
+## Forwarding model credentials
+
+Which secrets a deployment needs depends on how the agent reaches a model (see
+[the README](../../README.md#-choosing-how-to-reach-a-model)):
+
+```bash
+# LLM Gateway -- no provider key. LANGSMITH_API_KEY is injected by Cloud and is
+# a RESERVED name, so forwarding it is rejected with a 400.
+--secret-env LLM_GATEWAY_BASE_URL --secret-env LLM_MODEL
+
+# Anthropic directly
+--secret-env ANTHROPIC_API_KEY
+
+# OpenAI directly (the default)
+--secret-env OPENAI_API_KEY
+```
+
+`--secret-env` names an environment variable to forward; the value is read from
+the environment at deploy time and never appears in a log or on a command line.
+
 ## Deployment name length on self-hosted
 
 **Self-hosted deployment names must be 21 characters or fewer.**

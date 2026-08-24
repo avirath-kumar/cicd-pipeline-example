@@ -46,6 +46,44 @@ uv run langgraph dev
 
 This will start the LangGraph Studio interface where you can interact with and debug your text-to-SQL agent.
 
+## 🤖 Choosing how to reach a model
+
+The agent can reach a model three ways. It auto-detects in the order below, or
+set `LLM_PROVIDER` to force one and `LLM_MODEL` to override the model.
+
+| Route | Credential | Default model | Use when |
+|---|---|---|---|
+| `gateway` | `LANGSMITH_API_KEY` only | `anthropic/claude-haiku-4-5-20251001` | Your organisation does not issue provider keys |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` | You have an Anthropic key |
+| `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | You have an OpenAI key |
+
+### The LLM Gateway route
+
+The [LangSmith LLM Gateway](https://docs.langchain.com/langsmith/llm-gateway-api-formats)
+is OpenAI-compatible and authenticates with a LangSmith API key, so the agent
+needs **no provider key at all**:
+
+```bash
+export LLM_GATEWAY_BASE_URL="https://gateway.smith.langchain.com/v1"
+export LLM_MODEL="anthropic/claude-haiku-4-5-20251001"   # provider-qualified
+```
+
+Model IDs are qualified by provider here (`anthropic/…`, `openai/…`). List what
+your workspace can reach:
+
+```bash
+curl https://gateway.smith.langchain.com/v1/models \
+  -H "Authorization: Bearer $LANGSMITH_API_KEY"
+```
+
+> **In a deployment**: LangSmith Cloud injects `LANGSMITH_API_KEY` for you, and
+> the control plane **rejects it as a deployment secret** because the name is
+> reserved. So forward only `LLM_GATEWAY_BASE_URL` and `LLM_MODEL`:
+>
+> ```bash
+> --secret-env LLM_GATEWAY_BASE_URL --secret-env LLM_MODEL
+> ```
+
 ## 📁 Project Structure
 
 ```
