@@ -1,16 +1,60 @@
 import sqlite3
+from functools import lru_cache
+from typing import Callable, Optional, Union
 
 import requests
-from langchain_community.utilities.sql_database import SQLDatabase
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 
 
-# fetch the chinook database from github and create an in-memory database
+class SQLDatabase:
+    """Minimal SQLAlchemy-backed database helper.
+
+    Replaces ``langchain_community.utilities.sql_database.SQLDatabase``, which was
+    sunset upstream. Only the two methods this agent needs are implemented, and
+    ``run`` keeps the original string return format so prompts stay unchanged.
+
+    Accepts either an ``Engine`` or a callable returning one. Passing a callable
+    defers connecting until the database is actually used, which keeps module
+    import free of I/O -- important because the Agent Server imports the graph
+    during startup and a blocking import fails the whole deployment.
+    """
+
+    def __init__(self, engine: Union[Engine, Callable[[], Engine]]):
+        self._engine_source = engine
+        self._engine: Optional[Engine] = None
+
+    @property
+    def engine(self) -> Engine:
+        """Resolve the engine on first use."""
+        if self._engine is None:
+            source = self._engine_source
+            self._engine = source() if callable(source) else source
+        return self._engine
+
+    def get_usable_table_names(self) -> list:
+        """Return the alphabetically sorted names of every table."""
+        return sorted(inspect(self.engine).get_table_names())
+
+    def run(self, command: str) -> str:
+        """Execute a SQL statement and return its rows as a string."""
+        with self.engine.connect() as connection:
+            result = connection.execute(text(command))
+            if not result.returns_rows:
+                return ""
+            rows = [tuple(row) for row in result.fetchall()]
+        return str(rows) if rows else ""
+
+
+# Cached: the schema is static, so the download and rebuild only happen once per
+# process instead of on every generate_sql call.
+@lru_cache(maxsize=1)
 def get_engine_for_chinook_db():
     """Pull sql file, populate in-memory database, and create engine."""
     url = "https://raw.githubusercontent.com/lerocha/chinook-database/master/ChinookDatabase/DataSources/Chinook_Sqlite.sql"
     response = requests.get(url, timeout=10)
+    response.raise_for_status()
     sql_script = response.text
 
     connection = sqlite3.connect(":memory:", check_same_thread=False)
@@ -30,8 +74,13 @@ def get_db_table_names():
     return db.get_usable_table_names()
 
 
+@lru_cache(maxsize=1)
 def get_detailed_table_info():
-    """Get detailed information for each table including schema, keys, and sample data."""
+    """Get detailed information for each table including schema, keys, and sample data.
+
+    Cached: the schema does not change between runs, and this is rebuilt on
+    every generate_sql call otherwise.
+    """
     engine = get_engine_for_chinook_db()
     db = SQLDatabase(engine)
     inspector = inspect(engine)

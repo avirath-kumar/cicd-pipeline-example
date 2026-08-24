@@ -1,134 +1,165 @@
 name: Preview Deployment
 
-# Trigger on PR open, sync, or reopen
+# Called by the "Comprehensive Tests" workflow once every test job has passed,
+# so a preview is only ever created from code that is known to be green.
+#
+# This runs in the pull request's own context rather than via `workflow_run`.
+# That matters: `workflow_run` executes in the base repository with access to
+# every secret, which would hand a fork's pull request the deployment
+# credentials. Here a fork simply has no secrets, and the guard below skips
+# fork pull requests outright.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-    branches: [main]
-  workflow_run:
-    workflows: ["Comprehensive Tests"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      pr_number:
+        description: PR number to deploy a preview for. Defaults to the calling pull request.
+        required: false
+        type: string
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR number to deploy a preview for
+        required: true
+        type: string
 
-# Set environment variables
 env:
   PYTHON_VERSION: '3.11'
-  REGISTRY: docker.io
-  IMAGE_NAME: perinim98/text2sql-agent
-  LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  # Set the LANGSMITH_DEPLOYMENT_TARGET repository variable to `saas` or
+  # `self-hosted`. SaaS builds from this repository; self-hosted deploys a
+  # Docker image that this workflow builds and pushes.
+  DEPLOYMENT_TARGET: ${{ vars.LANGSMITH_DEPLOYMENT_TARGET || 'saas' }}
+  # Keep this short: self-hosted caps deployment names at 21 characters,
+  # because KEDA derives an HPA name from it that must fit in 63.
+  DEPLOYMENT_NAME_PREFIX: ${{ vars.DEPLOYMENT_NAME_PREFIX || 'text2sql' }}
+  REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME || github.repository }}
+  PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
 
-# Add permissions for PR comments
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
 
 jobs:
-  preview-deployment:
+  # Self-hosted LangSmith runs an image you supply, so build and push it first.
+  # SaaS has the control plane build from the repository and skips this job.
+  build-preview-image:
+    name: Build preview image (self-hosted only)
+    if: >-
+      (vars.LANGSMITH_DEPLOYMENT_TARGET || 'saas') == 'self-hosted' &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'success' || github.event_name == 'pull_request'
-
+    timeout-minutes: 30
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
+      - name: Log in to the container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-preview-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-preview-
+      - name: Build and push preview image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./dockerfiles/Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:preview-${{ env.PR_NUMBER }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-    - name: Install dependencies
-      run: uv sync
+  deploy-preview:
+    name: Deploy preview
+    # Fork pull requests have no access to secrets, and deployment credentials
+    # must never be exposed to code from a fork. Skip them explicitly.
+    if: >-
+      always() &&
+      !contains(needs.*.result, 'failure') &&
+      (github.event_name == 'workflow_dispatch' ||
+       github.event.pull_request.head.repo.full_name == github.repository)
+    needs: [build-preview-image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-    # Build and push Docker image with preview tag
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
 
-    - name: Build and push preview Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./dockerfiles/Dockerfile
-        push: true
-        tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:preview-${{ github.event.pull_request.number }}
-        platforms: linux/amd64,linux/arm64
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+      - name: Install dependencies
+        run: uv sync
 
-    - name: Install requests
-      run: pip install requests
+      # Credentials are passed through the environment, never on the command
+      # line, so they cannot appear in the rendered command in workflow logs.
+      - name: Deploy preview to LangSmith
+        env:
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          LANGSMITH_WORKSPACE_ID: ${{ secrets.LANGSMITH_WORKSPACE_ID }}
+          LANGSMITH_GITHUB_INTEGRATION_ID: ${{ secrets.LANGSMITH_GITHUB_INTEGRATION_ID }}
+          LANGSMITH_LISTENER_ID: ${{ secrets.LANGSMITH_LISTENER_ID }}
+          CONTROL_PLANE_HOST: ${{ secrets.CONTROL_PLANE_HOST }}
+          LANGSMITH_REGION: ${{ vars.LANGSMITH_REGION || 'us' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # A branch name is attacker-controlled on a pull request, so it is
+          # passed as an environment variable rather than interpolated into
+          # the script body.
+          REPO_REF: ${{ github.head_ref || github.ref_name }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          uv run python .github/scripts/langgraph_api.py \
+            --target "$DEPLOYMENT_TARGET" \
+            --action deploy-preview \
+            --pr-number "$PR_NUMBER" \
+            --repo-url "$REPO_URL" \
+            --repo-ref "$REPO_REF" \
+            --image-uri "$REGISTRY/$IMAGE_NAME:preview-$PR_NUMBER" \
+            --wait
 
-    # Deploy to LangGraph as preview
-    - name: Deploy preview to LangGraph
-      run: |
-        python .github/scripts/langgraph_api.py \
-          --action deploy-preview \
-          --pr-number ${{ github.event.pull_request.number }} \
-          --image-uri ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:preview-${{ github.event.pull_request.number }} \
-          --api-key ${{ secrets.LANGSMITH_API_KEY }} \
-          --openai-api-key ${{ secrets.OPENAI_API_KEY }}
+      - name: Generate deployment status report
+        if: always()
+        env:
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          LANGSMITH_WORKSPACE_ID: ${{ secrets.LANGSMITH_WORKSPACE_ID }}
+          CONTROL_PLANE_HOST: ${{ secrets.CONTROL_PLANE_HOST }}
+          LANGSMITH_REGION: ${{ vars.LANGSMITH_REGION || 'us' }}
+        run: |
+          uv run python .github/scripts/report_deployment.py \
+            --target "$DEPLOYMENT_TARGET" \
+            --deployment-name "$DEPLOYMENT_NAME_PREFIX-pr-$PR_NUMBER" \
+            --deployment-type preview
 
-    # Generate deployment status report
-    - name: Generate deployment status report
-      run: |
-        python .github/scripts/report_deployment.py \
-          --deployment-name text2sql-agent-pr-${{ github.event.pull_request.number }} \
-          --image-uri ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:preview-${{ github.event.pull_request.number }} \
-          --deployment-type preview
-
-    # Comment PR with deployment status
-    - name: Comment PR with deployment status
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-
-          try {
-            const comment = fs.readFileSync('deployment_comment.md', 'utf8');
-
+      - name: Comment on the PR with the deployment status
+        if: always() && github.event_name != 'workflow_dispatch'
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            let body;
+            try {
+              body = fs.readFileSync('deployment_comment.md', 'utf8');
+            } catch (error) {
+              body = `## 🚀 Preview deployment\n\nThe deployment report could not be generated: ${error.message}`;
+            }
             await github.rest.issues.createComment({
-              issue_number: context.issue.number,
+              issue_number: Number(process.env.PR_NUMBER),
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: comment
+              body,
             });
-          } catch (error) {
-            console.log('Failed to read deployment comment file:', error.message);
-            // Fallback comment
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `🚀 **Preview Deployment Status**\n\n✅ Preview deployment completed!\n🔗 Preview URL: https://text2sql-agent-pr-${{ github.event.pull_request.number }}.langchain.dev\n📦 Docker image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:preview-${{ github.event.pull_request.number }}`
-            });
-          }
-
-    - name: Preview deployment success
-      run: |
-        echo "✅ Preview deployment completed!"
-        echo "🔗 Preview URL will be available at: https://text2sql-agent-pr-${{ github.event.pull_request.number }}.langchain.dev"
-        echo "📦 Docker image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:preview-${{ github.event.pull_request.number }}"

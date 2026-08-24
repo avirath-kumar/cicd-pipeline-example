@@ -1,7 +1,8 @@
 from dotenv import load_dotenv
 from langsmith import Client
 
-load_dotenv(override=True)
+# Not override=True: real environment variables must win over a local .env.
+load_dotenv()
 
 client = Client()
 

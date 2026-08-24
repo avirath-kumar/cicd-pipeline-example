@@ -2,421 +2,313 @@ name: Comprehensive Tests
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [main, develop]
   pull_request:
-    branches: [ main, develop ]
+    branches: [main, develop]
     types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+
+env:
+  PYTHON_VERSION: '3.11'
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
-    steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-comprehensive-
-    - name: Install dependencies
-      run: uv sync
-
   quality-checks:
-    needs: setup
+    name: Lint and format
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+    timeout-minutes: 15
     steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0  # Needed for pre-commit hooks
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-comprehensive-
-    - name: Run Linting and Formatting Checks
-      run: make lint
-    - name: Run Pre-Commit Hooks
-      run: make pre-commit
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # pre-commit compares against the base revision
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
+      - name: Run linting and formatting checks
+        run: make lint
+      - name: Run pre-commit hooks
+        run: make pre-commit
 
   test-coverage:
-    needs: setup
+    name: Coverage
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+    timeout-minutes: 20
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
-      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
+      LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING || 'false' }}
+      LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-comprehensive-
-    - name: Run Tests with Coverage
-      run: make test
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Run tests with coverage
+        run: make test
+
+  # Verifies the control plane client builds the right request for both the
+  # SaaS and self-hosted hosting models. Runs fully offline against a mocked
+  # control plane, so it needs no credentials.
+  deployment-tests:
+    name: Deployment client
+    needs: [quality-checks]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Run deployment tests
+        run: uv run pytest tests/deployment/ --junitxml=deployment-results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: deployment-test-results
+          path: deployment-results.xml
 
   unit-tests:
-    needs: [setup, quality-checks, test-coverage]
+    name: Unit tests
+    needs: [quality-checks, test-coverage]
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+    timeout-minutes: 15
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
-      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
+      LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING || 'false' }}
+      LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-comprehensive-
-    - name: Run unit tests
-      run: uv run pytest tests/unit/ --junitxml=unit-results.xml
-      continue-on-error: false
-    - name: Upload unit test results
-      uses: actions/upload-artifact@v4
-      with:
-        name: unit-test-results
-        path: unit-results.xml
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Run unit tests
+        run: uv run pytest tests/unit/ --junitxml=unit-results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: unit-test-results
+          path: unit-results.xml
 
   integration-tests:
-    needs: [setup, quality-checks, test-coverage]
+    name: Integration tests
+    needs: [quality-checks, test-coverage]
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+    timeout-minutes: 15
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
-      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
+      LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING || 'false' }}
+      LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-comprehensive-
-    - name: Run integration tests
-      run: uv run pytest tests/integrations/ --junitxml=integration-results.xml
-      continue-on-error: false
-    - name: Upload integration test results
-      uses: actions/upload-artifact@v4
-      with:
-        name: integration-test-results
-        path: integration-results.xml
-
-  evaluation-tests:
-    needs: [setup, quality-checks, test-coverage]
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    strategy:
-      matrix:
-        python-version: ["3.11"]
-    env:
-      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
-      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
-    steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-comprehensive-
-    - name: Run evaluation tests
-      run: uv run pytest -m evaluator --junitxml=evaluator-results.xml
-      continue-on-error: false
-    - name: Upload evaluation test results
-      uses: actions/upload-artifact@v4
-      with:
-        name: evaluation-test-results
-        path: evaluator-results.xml
-
-    # Upload evaluation config JSON (LangSmith experiment name + criteria)
-    - name: Upload LangSmith evaluation config
-      uses: actions/upload-artifact@v4
-      with:
-        name: langsmith-eval-configs
-        path: evaluation_config__*.json
-
-# Post LangSmith evaluation feedback as a PR comment
-  evaluation-report:
-    needs: evaluation-tests
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    env:
-      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
-      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
-    steps:
-    - uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: "3.11"
-
-    - name: Download all LangSmith configs
-      uses: actions/download-artifact@v4
-      with:
-        name: langsmith-eval-configs
-
-    - name: Install LangSmith SDK
-      run: pip install langsmith
-
-    - name: Run LangSmith evaluation report
-      run: |
-        python .github/scripts/report_eval.py --verbose evaluation_config__*.json
-
-
-    - name: Comment PR with evaluation summary
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-          const comment = fs.readFileSync('eval_comment.md', 'utf8');
-
-          await github.rest.issues.createComment({
-            issue_number: context.issue.number,
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            body: comment
-          });
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Run integration tests
+        run: uv run pytest tests/integrations/ --junitxml=integration-results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: integration-test-results
+          path: integration-results.xml
 
   e2e-tests:
-    needs: [setup, quality-checks, test-coverage]
+    name: End-to-end tests
+    needs: [quality-checks, test-coverage]
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+    timeout-minutes: 20
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
-      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
+      LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING || 'false' }}
+      LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-comprehensive-
-    - name: Run e2e tests
-      run: uv run pytest tests/e2e/ --junitxml=e2e-results.xml
-      continue-on-error: false
-    - name: Upload e2e test results
-      uses: actions/upload-artifact@v4
-      with:
-        name: e2e-test-results
-        path: e2e-results.xml
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Run e2e tests
+        run: uv run pytest tests/e2e/ --junitxml=e2e-results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: e2e-test-results
+          path: e2e-results.xml
 
+  evaluation-tests:
+    name: Offline evaluations
+    needs: [quality-checks, test-coverage]
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING || 'true' }}
+      LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Run offline evaluations
+        run: uv run pytest -m evaluator --junitxml=evaluator-results.xml
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: evaluation-test-results
+          path: evaluator-results.xml
+      - name: Upload LangSmith evaluation configs
+        uses: actions/upload-artifact@v7
+        with:
+          name: langsmith-eval-configs
+          path: evaluation_config__*.json
+
+  evaluation-report:
+    name: Evaluation report
+    needs: evaluation-tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+      LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Download LangSmith evaluation configs
+        uses: actions/download-artifact@v8
+        with:
+          name: langsmith-eval-configs
+      - name: Build the evaluation report
+        run: uv run python .github/scripts/report_eval.py --verbose evaluation_config__*.json
+      - name: Comment on the PR with the evaluation summary
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            const body = fs.readFileSync('eval_comment.md', 'utf8');
+            await github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body,
+            });
+
+  # Final gate: the graph has to actually serve before anything is deployed.
   langgraph-dev-test:
-    needs: [unit-tests, integration-tests, e2e-tests, evaluation-tests]
+    name: Agent Server smoke test
+    needs: [unit-tests, integration-tests, e2e-tests, deployment-tests]
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        python-version: ["3.11"]
+    timeout-minutes: 20
     env:
       OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-      LANGSMITH_TRACING: ${{ secrets.LANGSMITH_TRACING }}
-      LANGSMITH_ENDPOINT: ${{ secrets.LANGSMITH_ENDPOINT }}
+      LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING || 'false' }}
+      LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
     steps:
-    - uses: actions/checkout@v4
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-comprehensive-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-comprehensive-
-    - name: Install dependencies
-      run: uv sync
-    - name: Start LangGraph dev server
-      run: |
-        echo "🚀 Starting LangGraph dev server..."
-        uv run langgraph dev --host 0.0.0.0 --port 2024 &
-        SERVER_PID=$!
-        echo "SERVER_PID=$SERVER_PID" >> $GITHUB_ENV
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+      - name: Install dependencies
+        run: uv sync
 
-        # Wait for server to start
-        echo "⏳ Waiting for server to start..."
-        sleep 10
+      - name: Start the Agent Server
+        run: |
+          echo "🚀 Starting the local Agent Server..."
+          uv run langgraph dev --host 127.0.0.1 --port 2024 --no-browser --no-reload \
+            > langgraph-dev.log 2>&1 &
+          echo "SERVER_PID=$!" >> "$GITHUB_ENV"
 
-        # Check if server is running
-        if ps -p $SERVER_PID > /dev/null; then
-          echo "✅ LangGraph dev server started successfully (PID: $SERVER_PID)"
-        else
-          echo "❌ Failed to start LangGraph dev server"
-          exit 1
-        fi
-    - name: Test server health endpoint
-      run: |
-        echo "🔍 Testing server health endpoint..."
-
-        # Test the /ok endpoint
-        for i in {1..30}; do
-          echo "Attempt $i/30: Testing /ok endpoint..."
-          if curl -f -s http://localhost:2024/ok > /dev/null; then
-            echo "✅ Server health check passed!"
-            break
-          else
-            echo "⏳ Server not ready yet, waiting..."
+      - name: Wait for the server to become healthy
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:2024/ok | jq -e '.ok == true' > /dev/null 2>&1; then
+              echo "✅ Server healthy after ${attempt} attempt(s)."
+              exit 0
+            fi
+            echo "⏳ Attempt ${attempt}/30: not ready yet..."
             sleep 2
-          fi
-        done
-
-        # Final health check with detailed response
-        echo "🔍 Final health check..."
-        HEALTH_RESPONSE=$(curl -s http://localhost:2024/ok || echo '{"ok":false}')
-        echo "Health response: $HEALTH_RESPONSE"
-
-        # Parse JSON response
-        if echo "$HEALTH_RESPONSE" | jq -e '.ok == true' > /dev/null; then
-          echo "✅ LangGraph dev server is healthy and responding correctly!"
-        else
-          echo "❌ LangGraph dev server health check failed"
-          echo "Response: $HEALTH_RESPONSE"
+          done
+          echo "❌ Server never became healthy. Logs:"
+          cat langgraph-dev.log
           exit 1
-        fi
-    - name: Test server endpoints
-      run: |
-        echo "🔍 Testing additional server endpoints..."
 
-        # Test root endpoint
-        echo "Testing root endpoint..."
-        ROOT_RESPONSE=$(curl -s http://localhost:2024/ || echo "Failed")
-        echo "Root response: $ROOT_RESPONSE"
+      - name: Check the graph is registered
+        run: |
+          echo "🔍 Fetching registered assistants..."
+          curl -fsS -X POST http://127.0.0.1:2024/assistants/search \
+            -H 'Content-Type: application/json' \
+            -d '{"limit": 10}' | jq -e '[.[] | .graph_id] | index("simple_text2sql")' \
+            || { echo "❌ simple_text2sql graph is not registered"; cat langgraph-dev.log; exit 1; }
+          echo "✅ simple_text2sql graph is registered."
 
-        # Test if server is serving the LangGraph Studio interface
-        if curl -f -s http://localhost:2024/ | grep -q "LangGraph" || curl -f -s http://localhost:2024/ | grep -q "langgraph"; then
-          echo "✅ LangGraph Studio interface is accessible"
-        else
-          echo "⚠️  LangGraph Studio interface may not be fully loaded"
-        fi
-    - name: Stop LangGraph dev server
-      if: always()
-      run: |
-        echo "🛑 Stopping LangGraph dev server..."
-        if [ -n "$SERVER_PID" ]; then
-          kill $SERVER_PID 2>/dev/null || true
-          echo "✅ LangGraph dev server stopped"
-        fi
-    - name: LangGraph dev server test results
-      if: always()
-      run: |
-        echo "📊 LangGraph dev server test completed"
-        echo "✅ Server was able to start and respond to health checks"
+      - name: Stop the Agent Server
+        if: always()
+        run: |
+          if [ -n "${SERVER_PID:-}" ]; then
+            kill "$SERVER_PID" 2>/dev/null || true
+          fi
+
+      - name: Upload server logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: langgraph-dev-log
+          path: langgraph-dev.log
+
+  # Only deploy a preview once every test above has passed. Invoked as a
+  # reusable workflow so it runs in this pull request's context rather than
+  # through `workflow_run`, which would expose secrets to fork pull requests.
+  preview-deployment:
+    name: Preview deployment
+    needs: [langgraph-dev-test, evaluation-report]
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    # A reusable workflow cannot request more than the job calling it holds.
+    # preview-deployment.yml needs pull-requests: write to post its status
+    # comment, so the caller has to grant it here -- the workflow-level default
+    # of contents: read alone makes GitHub reject the run at startup.
+    permissions:
+      contents: read
+      pull-requests: write
+    uses: ./.github/workflows/preview-deployment.yml
+    secrets: inherit

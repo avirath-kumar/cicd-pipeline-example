@@ -1,13 +1,18 @@
-# LGP Evals CI/CD Pipeline 🚀
+# LangSmith Deployment CI/CD Pipeline 🚀
 
 Agent built in [LangGraph OSS](https://docs.langchain.com/oss/python/langgraph/overview). It includes:
 - unit, integration, e2e tests
 - offline evaluations with [OpenEvals](https://github.com/langchain-ai/openevals) and [LangSmith](https://docs.langchain.com/langsmith/home)
-- preview and prod agent deployments using [LangGraph Platform](https://docs.langchain.com/langgraph-platform/api-ref-control-plane) control plane API
+- preview and prod agent deployments through the [LangSmith Deployment control plane API](https://docs.langchain.com/langsmith/api-ref-control-plane)
+
+The pipeline supports both hosting models — **Cloud (SaaS)** and **Self-Hosted** — from
+the same workflows. See [Choosing a hosting model](#-choosing-a-hosting-model).
 
 ## 🛠️ Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) - Fast Python package installer and resolver
+- Python 3.11+
+- A [LangSmith account](https://smith.langchain.com) (Cloud) or a self-hosted LangSmith instance
 
 ## 🚀 Quick Start
 
@@ -41,14 +46,61 @@ uv run langgraph dev
 
 This will start the LangGraph Studio interface where you can interact with and debug your text-to-SQL agent.
 
+## 🤖 Choosing how to reach a model
+
+The agent can reach a model three ways. It auto-detects in the order below, or
+set `LLM_PROVIDER` to force one and `LLM_MODEL` to override the model.
+
+| Route | Credential | Default model | Use when |
+|---|---|---|---|
+| `gateway` | `LANGSMITH_API_KEY` only | `anthropic/claude-haiku-4-5-20251001` | Your organisation does not issue provider keys |
+| `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` | You have an Anthropic key |
+| `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | You have an OpenAI key |
+
+### The LLM Gateway route
+
+The [LangSmith LLM Gateway](https://docs.langchain.com/langsmith/llm-gateway-api-formats)
+is OpenAI-compatible and authenticates with a LangSmith API key, so the agent
+needs **no provider key at all**:
+
+```bash
+export LLM_GATEWAY_BASE_URL="https://gateway.smith.langchain.com/v1"
+export LLM_MODEL="anthropic/claude-haiku-4-5-20251001"   # provider-qualified
+```
+
+Model IDs are qualified by provider here (`anthropic/…`, `openai/…`). List what
+your workspace can reach:
+
+```bash
+curl https://gateway.smith.langchain.com/v1/models \
+  -H "Authorization: Bearer $LANGSMITH_API_KEY"
+```
+
+> **In a deployment**: LangSmith Cloud injects `LANGSMITH_API_KEY` for you, and
+> the control plane **rejects it as a deployment secret** because the name is
+> reserved. So forward only `LLM_GATEWAY_BASE_URL` and `LLM_MODEL`:
+>
+> ```bash
+> --secret-env LLM_GATEWAY_BASE_URL --secret-env LLM_MODEL
+> ```
+
 ## 📁 Project Structure
 
 ```
 text2sql-agent/
-├── agents/           # Agent implementations
-├── examples/         # Usage examples
-├── helpers/          # Utility functions
-└── langgraph.json    # LangGraph configuration
+├── agents/               # Agent implementation (graph, nodes, prompts, db helpers)
+├── tests/
+│   ├── unit/             # Individual nodes and utilities
+│   ├── integrations/     # Full graph with mocked dependencies
+│   ├── e2e/              # Full graph against a real model
+│   ├── offline_evals/    # LangSmith + OpenEvals experiments
+│   └── deployment/       # Control plane client, both hosting models
+├── .github/
+│   ├── scripts/          # Deployment + reporting scripts used by CI
+│   └── workflows/        # Test, preview deploy, production deploy
+├── examples/             # Usage examples
+├── helpers/              # Dataset creation helpers
+└── langgraph.json        # Agent Server configuration
 ```
 
 ## 🔧 Development
@@ -83,32 +135,77 @@ Run specific test categories:
   uv run pytest -m evaluator
   ```
 
-### GitHub Actions Environment Setup
+- **Deployment client** (verifies the SaaS and self-hosted request payloads
+  against a mocked control plane — no credentials required):
+  ```bash
+  make test-deployment
+  ```
 
-If you enable the GitHub Actions workflow, make sure to set the following environment variable in your repository secrets:
+### GitHub Actions setup
 
-- **`OPENAI_API_KEY`**: Your OpenAI API key
-- **`LANGSMITH_API_KEY`**: Your LangSmith API key
-- **`LANGSMITH_TRACING=true`**: Enable LangSmith tracing
+Tests and evaluations run on every pull request and on pushes to `main`/`develop`.
+Deployments run only for pull requests raised from this repository — a fork has
+no access to these secrets, by design.
 
+**Repository variables** (Settings → Secrets and variables → Actions → Variables):
 
-The workflow will automatically run tests and evaluations on pull requests and pushes to main/develop branches
+| Variable | Purpose | Default |
+|---|---|---|
+| `LANGSMITH_DEPLOYMENT_TARGET` | `saas` or `self-hosted` | `saas` |
+| `DEPLOYMENT_NAME_PREFIX` | Prefix for deployment names. Self-hosted caps the full name at 21 chars | `text2sql` |
+| `LANGSMITH_REGION` | Cloud region: `us`, `eu`, `apac`, `aws-us` | `us` |
+| `REGISTRY` | Container registry (self-hosted only) | `docker.io` |
+| `IMAGE_NAME` | Image repository (self-hosted only) | `github.repository` |
+| `LANGSMITH_TRACING` | Enable tracing in test jobs | `false` |
+| `LANGSMITH_ENDPOINT` | LangSmith **tracing** API URL | LangSmith default |
+
+**Repository secrets:**
+
+| Secret | Needed for | Purpose |
+|---|---|---|
+| `OPENAI_API_KEY` | both | Model calls in tests and in the deployment |
+| `LANGSMITH_API_KEY` | both | Tracing, evaluations, and control plane auth |
+| `LANGSMITH_WORKSPACE_ID` | both | Workspace to deploy into (`X-Tenant-Id`) |
+| `LANGSMITH_GITHUB_INTEGRATION_ID` | SaaS | GitHub App install that grants repo access |
+| `CONTROL_PLANE_HOST` | self-hosted | `https://<your-langsmith-host>/api-host` |
+| `LANGSMITH_LISTENER_ID` | self-hosted (optional) | Pin deployments to a listener |
+| `DOCKER_USERNAME` / `DOCKER_PASSWORD` | self-hosted | Push the agent image |
+
+## 🧭 Choosing a hosting model
+
+LangSmith Deployment runs in one of two hosting models, and **the control plane
+accepts a different deployment source for each**. This is the single most
+important thing to get right — the wrong source is rejected by the API:
+
+| | **Cloud (SaaS)** | **Self-Hosted** |
+|---|---|---|
+| Control plane host | `https://api.host.langchain.com` | `https://<your-langsmith-host>/api-host` |
+| Deployment source | `github` — the control plane builds for you | `external_docker` — you build and push the image |
+| Docker image needed? | No | Yes |
+| Extra config | GitHub integration ID | Control plane host, optional listener ID |
+
+Cloud regional hosts: `https://eu.api.host.langchain.com`,
+`https://apac.api.host.langchain.com`, `https://aws.api.host.langchain.com`.
+
+> **Note**: the control plane API and the LangSmith tracing API are different
+> services on different hosts. Tracing uses `https://api.smith.langchain.com`
+> (Cloud) or `https://<your-langsmith-host>/api` (self-hosted); deployments use
+> the hosts in the table above.
+
+Pick your model with the `LANGSMITH_DEPLOYMENT_TARGET` repository variable
+(`saas` or `self-hosted`). Everything below follows from that one setting.
 
 ## 🚀 Deployment Options
 
-This project supports multiple deployment methods beyond the automated GitHub Actions CI/CD pipeline. Here are the different ways you can deploy your LangGraph agent:
+Beyond the automated CI/CD pipeline, you can deploy this agent by hand. Both
+paths start the same way.
 
-### Prerequisites for Manual Deployment
+### Prerequisites for manual deployment
 
-Before deploying your agent, ensure you have:
-
-1. **LangGraph Graph**: Your agent implementation (e.g., `./agents/simple_text2sql.py:agent`)
-2. **Dependencies**: Either `requirements.txt` or `pyproject.toml` with all required packages
-3. **Configuration**: `langgraph.json` file specifying:
-   - Path to your agent graph
-   - Dependencies location
-   - Environment variables
-   - Python version
+1. **LangGraph graph**: your agent implementation (e.g. `./agents/simple_text2sql.py:agent`)
+2. **Dependencies**: either `requirements.txt` or `pyproject.toml` with all required packages
+3. **Configuration**: a `langgraph.json` specifying the graph path, dependencies,
+   environment variables and Python version
 
 Example `langgraph.json`:
 ```json
@@ -123,166 +220,167 @@ Example `langgraph.json`:
 }
 ```
 
-### Method 1: LangSmith Deployment UI (Cloud Only)
+### Local development & testing
 
-Deploy your agent using the LangSmith deployment interface for cloud deployments:
-
-1. Go to your LangSmith dashboard
-2. Navigate to the Deployments section
-3. Connect your GitHub repository and specify the agent path
-
-**Benefits:**
-- Simple UI-based deployment
-- Direct integration with your GitHub repository
-- No manual Docker image management required
-
-### Method 2: Build Docker Image with LangGraph CLI
-
-Build a Docker image directly using the LangGraph CLI:
+Always validate locally first:
 
 ```bash
-# Build Docker image
-uv run langgraph build -t my-agent:latest
-
-# Push to your container registry
-docker push my-agent:latest
-```
-
-You can push to any container registry (Docker Hub, AWS ECR, Azure ACR, Google GCR, etc.) that your deployment environment has access to.
-
-**Deployment Options:**
-- **Cloud LangSmith**: Use the Control Plane API to create deployments from your container registry
-- **Self-Hosted/Hybrid LangSmith**: Choose between LangSmith UI or Control Plane API
-
-See the [LangGraph CLI build documentation](https://docs.langchain.com/langgraph-platform/cli#build) for more details.
-
-
-### Local Development & Testing
-
-First, test your agent locally using LangGraph Studio:
-
-```bash
-# Start local development server with LangGraph Studio
 uv run langgraph dev
 ```
 
-This will:
-- Spin up a local server with LangGraph Studio
-- Allow you to visualize and interact with your graph
-- Validate that your agent works correctly before deployment
+This spins up a local Agent Server with [Studio](https://docs.langchain.com/langsmith/studio),
+lets you visualise and interact with the graph, and catches configuration,
+dependency and logic errors before you deploy.
 
-**💡 Tip**: If your graph works in LangGraph Studio, deployment to LangGraph Platform will likely succeed.
+**💡 Tip**: if the graph runs cleanly under `langgraph dev`, deploying it to
+LangSmith will very likely succeed.
 
 ![LangGraph Studio Interface](assets/studio-cli.png)
 
-See the [LangGraph CLI documentation](https://docs.langchain.com/langgraph-platform/cli#dev) for more details.
+See the [LangGraph CLI documentation](https://docs.langchain.com/langsmith/cli#dev) for more.
 
-### Deploy to LangSmith
+### Cloud (SaaS)
 
-#### Cloud Deployment
+Cloud deploys directly from your GitHub repository — no Docker involved.
 
-Deploy using the LangSmith deployment UI or the [Control Plane API](https://docs.langchain.com/langgraph-platform/api-ref-control-plane#langgraph-control-plane-api-reference):
+**Via the UI**
 
-- **UI Method**: Connect your GitHub repository directly in the LangSmith UI
-- **API Method**: Use the Control Plane API to create deployments from your container registry (required for Docker images)
+1. Open your [LangSmith dashboard](https://smith.langchain.com)
+2. Go to **Deployments** → **+ New Deployment**
+3. Pick this repository and the branch to deploy
 
 ![Cloud Deployment UI](assets/cloud-lgp.png)
 
-#### Self-Hosted/Hybrid Deployment
+**Via the control plane API**
 
-For [self-hosted LangSmith instances](https://docs.langchain.com/langgraph-platform/deploy-self-hosted-full-platform):
+```bash
+export LANGSMITH_API_KEY="..."             # never pass secrets as CLI arguments
+export LANGSMITH_WORKSPACE_ID="..."
+export LANGSMITH_GITHUB_INTEGRATION_ID="..."   # GET /v1/integrations/github/install
+export OPENAI_API_KEY="..."
 
-1. Ensure your Kubernetes cluster has access to your container registry
-2. Build and push your Docker image to your container registry
-3. Choose your deployment method:
-   - **LangSmith UI**: Create a new deployment and specify your image URI (e.g., `docker.io/username/my-agent:latest`)
-   - **Control Plane API**: Use the API to create deployments from your container registry
+uv run python .github/scripts/langgraph_api.py \
+  --target saas \
+  --action deploy-production \
+  --repo-url https://github.com/<org>/<repo> \
+  --repo-ref main \
+  --wait
+```
 
-**Note**: Self-hosted deployments don't distinguish between development/production types, but you can use tags to organize them.
+### Self-Hosted
+
+Self-hosted runs an image you build and push yourself.
+
+```bash
+# 1. Build the image
+uv run langgraph build -t docker.io/<username>/text2sql-agent:latest
+
+# 2. Push it to a registry your cluster can pull from
+docker push docker.io/<username>/text2sql-agent:latest
+```
+
+Any registry works (Docker Hub, ECR, ACR, GCR, …) as long as your Kubernetes
+cluster can reach it.
+
+**Via the UI**: create a new deployment and enter the image URI in the
+**Image Path** field.
 
 ![Self-Hosted Deployment UI](assets/selfhosted-lgp.png)
 
-See the [self-hosted full platform deployment guide](https://docs.langchain.com/langgraph-platform/deploy-self-hosted-full-platform) for detailed setup instructions.
-
-### Connect to Your Deployed Agent
-
-Once your agent is deployed, you can connect to it using several methods:
-
-- **[LangGraph SDK](https://docs.langchain.com/langgraph-platform/sdk)**: Use the LangGraph SDK for programmatic integration
-- **[RemoteGraph](https://docs.langchain.com/langgraph-platform/use-remote-graph)**: Connect using RemoteGraph for remote graph connections (to use your graph in other graphs)
-- **[REST API](https://docs.langchain.com/langgraph-platform/server-api-ref)**: Use HTTP-based interactions with your deployed agent
-- **[LangGraph Studio](https://docs.langchain.com/langgraph-platform/langgraph-studio)**: Access the visual interface for testing and debugging
-
-### Environment Configuration
-
-#### Database & Cache Configuration
-
-By default, LangGraph Platform creates PostgreSQL and Redis instances for you. To use external services:
+**Via the control plane API**
 
 ```bash
-# Set environment variables for external services
-export POSTGRES_URI_CUSTOM="postgresql://user:pass@host:5432/db"
-export REDIS_URI_CUSTOM="redis://host:6379/0"
+export LANGSMITH_API_KEY="..."
+export LANGSMITH_WORKSPACE_ID="..."
+export CONTROL_PLANE_HOST="https://langsmith.your-company.com/api-host"
+export OPENAI_API_KEY="..."
+
+uv run python .github/scripts/langgraph_api.py \
+  --target self-hosted \
+  --action deploy-production \
+  --image-uri docker.io/<username>/text2sql-agent:latest \
+  --wait
 ```
 
-See the [environment variables documentation](https://docs.langchain.com/langgraph-platform/env-var#postgres-uri-custom) for more details.
+See the [self-hosted deployment guide](https://docs.langchain.com/langsmith/deploy-to-self-hosted-overview)
+and [deploy with control plane](https://docs.langchain.com/langsmith/deploy-with-control-plane)
+for cluster setup.
 
-#### Required Environment Variables
-
-Remember to add all necessary environment variables to your deployment, including any API keys required by your specific agent implementation.
-
-### Deployment Flow
+### Deployment flow
 
 ```mermaid
 graph TD
     A[Agent Implementation] --> B[langgraph.json + dependencies]
-    B --> C[Test Locally with langgraph dev]
+    B --> C[Test locally with langgraph dev]
     C --> D{Errors?}
-    D -->|Yes| E[Fix Issues]
+    D -->|Yes| E[Fix issues]
     E --> C
-    D -->|No| F[Choose LangSmith Instance]
+    D -->|No| F{Hosting model?}
 
-    F --> G[Cloud LangSmith]
-    F --> H[Self-Hosted/Hybrid LangSmith]
+    F -->|Cloud SaaS| G[Cloud LangSmith]
+    F -->|Self-Hosted| H[Self-Hosted LangSmith]
 
-    subgraph "Cloud LangSmith"
-        G --> I[Method 1: Connect GitHub Repo in UI]
-        G --> J[Method 2: Docker Image]
-        I --> K[Deploy via LangSmith UI]
-        J --> L[Build Docker Image langgraph build]
-        L --> M[Push to Container Registry]
-        M --> N[Deploy via Control Plane API]
+    subgraph "Cloud SaaS — source: github"
+        G --> I[Connect GitHub repo in UI]
+        G --> J[Control Plane API with repo + ref]
+        I --> K[Control plane builds the image]
+        J --> K
     end
 
-    subgraph "Self-Hosted/Hybrid LangSmith"
-        H --> S[Build Docker Image langgraph build]
-        S --> T[Push to Container Registry]
+    subgraph "Self-Hosted — source: external_docker"
+        H --> S[Build image with langgraph build]
+        S --> T[Push to your container registry]
         T --> U{Deploy via?}
-        U -->|UI| V[Specify Image URI in UI]
-        U -->|API| W[Use Control Plane API]
-        V --> X[Deploy via LangSmith UI]
-        W --> Y[Deploy via Control Plane API]
+        U -->|UI| V[Enter image URI in the UI]
+        U -->|API| W[Control Plane API with image_uri]
     end
 
-    K --> AA[Agent Ready for Use]
-    N --> AA
-    X --> AA
-    Y --> AA
+    K --> AA[Agent ready for use]
+    V --> AA
+    W --> AA
 
     AA --> BB{Connect via?}
-    BB -->|LangGraph SDK| CC[Use LangGraph SDK]
-    BB -->|RemoteGraph| DD[Use RemoteGraph]
-    BB -->|REST API| EE[Use REST API]
-    BB -->|LangGraph Studio UI| FF[Use LangGraph Studio UI]
+    BB --> CC[LangGraph SDK]
+    BB --> DD[RemoteGraph]
+    BB --> EE[REST API]
+    BB --> FF[Studio UI]
 ```
 
-### Deployment Best Practices
+### Connect to your deployed agent
 
-1. **Test Locally First**: Always use `langgraph dev` to validate your agent
-2. **Version Your Images**: Use semantic versioning for your Docker images
-3. **Monitor Deployments**: Use LangSmith tracing to monitor agent performance
-4. **Environment Separation**: Use different image tags for different environments
-5. **Resource Limits**: Set appropriate CPU/memory limits for your deployments
+- **[LangGraph SDK](https://docs.langchain.com/langsmith/deploy-reference-overview)**: programmatic integration
+- **[RemoteGraph](https://docs.langchain.com/langsmith/use-remote-graph)**: use your deployed graph inside another graph
+- **[REST API](https://docs.langchain.com/langsmith/agent-server-api)**: HTTP interaction with your agent
+- **[Studio](https://docs.langchain.com/langsmith/studio)**: visual testing and debugging
+
+### Environment configuration
+
+#### Database & cache
+
+LangSmith Deployment provisions PostgreSQL and Redis for you. To point at your own:
+
+```bash
+export POSTGRES_URI_CUSTOM="postgresql://user:pass@host:5432/db"
+export REDIS_URI_CUSTOM="redis://host:6379/0"
+```
+
+See the environment variable reference for
+[Cloud](https://docs.langchain.com/langsmith/env-var-cloud) and
+[self-hosted](https://docs.langchain.com/langsmith/env-var-self-hosted).
+
+#### Deployment secrets
+
+Any API key your agent needs at runtime (here, `OPENAI_API_KEY`) is forwarded as
+a deployment secret. The CI scripts read these from the environment by name and
+never log their values.
+
+### Deployment best practices
+
+1. **Test locally first**: always validate with `langgraph dev`
+2. **Version your images**: use semantic versioning for self-hosted images
+3. **Monitor deployments**: use LangSmith tracing to watch agent performance
+4. **Separate environments**: previews are `dev`, production is `prod`
+5. **Set resource limits**: tune `--min-scale`, `--max-scale`, `--cpu`, `--memory-mb`
 
 ## 🔄 CI/CD Pipeline
 
@@ -294,11 +392,11 @@ The pipeline is designed to automatically handle the entire lifecycle from code 
 
 The CI/CD pipeline is implemented through GitHub Actions workflows that automatically trigger on code changes and pull requests:
 
-#### New LGP Revision Workflow
+#### Production deployment workflow
 
-![New LGP Revision Workflow](assets/new-lgp-revision.png)
+![Production deployment workflow](assets/new-lgp-revision.png)
 
-If we already have an existing deployment, this workflow will run the new LangGraph Platform revision process. This ensures that any updates to the agent are properly deployed and integrated into the existing infrastructure.
+When a pull request closes, this workflow deletes its preview deployment. If the pull request was merged, it then cuts a new production revision — patching the existing deployment when one exists, and creating it otherwise.
 
 #### Testing and Evaluation Workflow
 
@@ -306,12 +404,12 @@ If we already have an existing deployment, this workflow will run the new LangGr
 
 In addition to the more traditional testing phases (unit tests, integration tests, end-to-end tests, etc.), we have added offline evaluations and LangGraph dev server testing because we want to test the quality of our agent. These evaluations provide comprehensive assessment of the agent's performance using real-world scenarios and data.
 
-**New LangGraph Dev Server Test:**
+**Agent Server smoke test:**
 - **Runs AFTER all other tests pass** (unit, integration, e2e, offline evaluations)
-- Starts a local LangGraph dev server on port 2024
+- Starts a local Agent Server on port 2024 via `langgraph dev`
 - Tests the `/ok` health endpoint to ensure server is healthy
 - Validates JSON response `{"ok": true}`
-- Tests LangGraph Studio interface accessibility
+- Confirms the `simple_text2sql` graph is registered via `/assistants/search`
 - Ensures the agent works in a real server environment before deployment
 - **Final quality gate** before any deployment proceeds
 
@@ -362,20 +460,25 @@ graph TD
 ### Pipeline Stages
 
 1. **Trigger Sources**: Code changes, graph modifications, prompt updates, or online evaluation alerts
-2. **Testing Layers**: Unit tests for individual nodes, integration tests, end-to-end graph testing, and LangGraph dev server testing
+2. **Testing Layers**: Unit tests for individual nodes, integration tests, end-to-end graph testing, deployment-client tests, and an Agent Server smoke test
 3. **Evaluation**: Offline evaluations using OpenEvals/AgentEvals with hard and soft assertions
 4. **Quality Gates**: Preview deployments only proceed if all tests pass successfully
 5. **Staging**: Deployment to staging environment for live data testing
 6. **Production**: Promotion to production if all quality thresholds are met
 7. **Monitoring**: Continuous monitoring with alerts and manual review processes
 
-### Preview Deployment Improvements
+### How previews stay safe and cheap
 
-**Smart Preview Deployment:**
-- **Waits for Tests**: Preview deployments only run after all tests pass successfully
-- **Quality Gate**: No wasted deployments on failing code
-- **Cost Optimization**: Only deploy working code to preview environments
-- **Faster Feedback**: Tests run in parallel, deployment waits for success
+- **Tests gate deployment**: the preview workflow is invoked by the test workflow
+  as a reusable workflow, so it only runs once every test job is green
+- **No wasted deployments**: failing code never reaches a preview environment
+- **Automatic cleanup**: closing the pull request deletes its preview
+- **Fork pull requests are excluded**: previews are invoked in the pull request's
+  own context rather than through `workflow_run`. A `workflow_run` trigger runs in
+  the base repository *with* access to every secret, which would expose the
+  deployment credentials to code from a fork
+- **Secrets stay out of logs**: credentials are passed to the scripts through the
+  environment, never as command-line arguments, and only secret *names* are printed
 
 ## 📚 Examples
 

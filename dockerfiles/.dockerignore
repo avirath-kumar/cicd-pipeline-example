@@ -24,8 +24,17 @@ wheels/
 .installed.cfg
 *.egg
 
-# Virtual environments
+# Secret material -- must never reach an image layer
 .env
+.env.*
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+credentials.json
+
+# Virtual environments
 venv/
 .venv/
 env/

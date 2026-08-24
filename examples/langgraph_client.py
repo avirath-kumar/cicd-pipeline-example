@@ -3,7 +3,8 @@ import asyncio
 from dotenv import load_dotenv
 from langgraph_sdk import get_client
 
-load_dotenv(override=True)
+# Not override=True: real environment variables must win over a local .env.
+load_dotenv()
 
 # Assistant ID we want to use
 ASSISTANT_ID = "simple_text2sql"
