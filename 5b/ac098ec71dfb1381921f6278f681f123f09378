@@ -1,0 +1,19 @@
+agents/prompts.py
+  s_d030811ff9a859::t_f61235791049af 18,20-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "5bac098ec71dfb1381921f6278f681f123f09378",
+  "prompts": {},
+  "sessions": {
+    "s_d030811ff9a859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71f06db4-eaab-48d4-b92d-693f9c588a48",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Johanson <eric.johanson@langchain.dev>"
+    }
+  }
+}
