@@ -108,3 +108,47 @@ def test_importing_the_graph_makes_no_http_calls():
     )
     assert result.returncode == 0, result.stderr
     assert "OK" in result.stdout
+
+
+@pytest.mark.utils
+@pytest.mark.parametrize(
+    "env,expected",
+    [
+        ({"LLM_GATEWAY_BASE_URL": "https://gw/v1"}, "gateway"),
+        ({"ANTHROPIC_API_KEY": "x"}, "anthropic"),
+        ({}, "openai"),
+        # An explicit choice beats auto-detection either way.
+        ({"LLM_PROVIDER": "openai", "LLM_GATEWAY_BASE_URL": "https://gw/v1"}, "openai"),
+        ({"LLM_PROVIDER": "gateway"}, "gateway"),
+        ({"LLM_PROVIDER": "ANTHROPIC"}, "anthropic"),
+    ],
+)
+def test_llm_route_resolution(monkeypatch, env, expected):
+    """Gateway, direct Anthropic and direct OpenAI must all be reachable."""
+    from agents.simple_text2sql import resolve_llm_route
+
+    for key in ("LLM_GATEWAY_BASE_URL", "ANTHROPIC_API_KEY", "LLM_PROVIDER"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    assert resolve_llm_route() == expected
+
+
+@pytest.mark.utils
+def test_unknown_llm_provider_is_rejected(monkeypatch):
+    from agents.simple_text2sql import resolve_llm_route
+
+    monkeypatch.setenv("LLM_PROVIDER", "bedrock")
+    with pytest.raises(ValueError, match="not supported"):
+        resolve_llm_route()
+
+
+@pytest.mark.utils
+def test_gateway_route_requires_a_langsmith_key(monkeypatch):
+    """Cloud injects LANGSMITH_API_KEY; elsewhere its absence must be explicit."""
+    from agents.simple_text2sql import build_llm
+
+    monkeypatch.setenv("LLM_PROVIDER", "gateway")
+    monkeypatch.delenv("LANGSMITH_API_KEY", raising=False)
+    with pytest.raises(ValueError, match="LANGSMITH_API_KEY"):
+        build_llm()
