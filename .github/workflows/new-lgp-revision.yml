@@ -112,10 +112,14 @@ jobs:
     name: Deploy to production
     needs: [cleanup-preview, build-production-image]
     # `always()` so the SaaS path still runs when the image job is skipped.
+    #
+    # Deliberately NOT gated on cleanup-preview succeeding. Deleting the
+    # preview is housekeeping; failing to delete it is not a reason to withhold
+    # a merged change from production. The build is a real gate, so that still
+    # blocks.
     if: >-
       always() &&
       github.event.pull_request.merged == true &&
-      needs.cleanup-preview.result == 'success' &&
       needs.build-production-image.result != 'failure'
     runs-on: ubuntu-latest
     timeout-minutes: 45

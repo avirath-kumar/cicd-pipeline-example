@@ -55,7 +55,7 @@ Both jobs additionally skip pull requests raised from forks.
 |---|---|---|
 | `cleanup-preview` | always (non-fork) | deletes the pull request's preview deployment |
 | `build-production-image` | merged **and** self-hosted | builds and pushes `:latest` and `main-<sha>` |
-| `deploy-production` | merged | creates or revises the production deployment |
+| `deploy-production` | merged | creates or revises the production deployment. Not gated on `cleanup-preview`: failing to delete a preview is housekeeping, not a reason to withhold a merged change |
 
 ## Using a different container registry
 
