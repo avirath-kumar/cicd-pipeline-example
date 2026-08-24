@@ -275,14 +275,16 @@ def test_delete_accepts_204():
 @pytest.mark.deployment
 @responses.activate
 def test_error_response_raises_with_status():
+    """Unexpected statuses surface the code and body so CI logs are diagnosable."""
     responses.add(
         responses.POST,
         f"{SAAS_HOST}/v2/deployments",
-        json={"detail": "A deployment named 'x' already exists."},
-        status=409,
+        json={"detail": "resource_spec.cpu must be greater than 0"},
+        status=400,
     )
-    with pytest.raises(control_plane.ControlPlaneError, match="409"):
+    with pytest.raises(control_plane.ControlPlaneError, match="400") as excinfo:
         make_client().create_deployment("x", "github", {}, {}, [])
+    assert "resource_spec.cpu" in str(excinfo.value)
 
 
 @pytest.mark.deployment
@@ -439,3 +441,35 @@ def test_report_leads_with_failure_when_revision_failed(tmp_path):
     assert "❌" in heading, heading
     assert "✅" not in heading, heading
     assert "DEPLOY_FAILED" in body
+
+
+@pytest.mark.deployment
+@responses.activate
+def test_leftover_tracing_project_gives_actionable_error():
+    """Deleting a deployment leaves its tracing project, blocking the name.
+
+    A reopened pull request whose preview was already cleaned up hits this, so
+    the message has to say how to fix it rather than dumping a raw 409.
+    """
+    responses.add(
+        responses.POST,
+        f"{SAAS_HOST}/v2/deployments",
+        json={
+            "detail": (
+                "Deployments create a tracing project in LangSmith with the same "
+                "name as the deployment. There already exists a project in "
+                "LangSmith named: text2sql-agent-pr-999."
+            )
+        },
+        status=409,
+    )
+    with pytest.raises(control_plane.NameConflictError) as excinfo:
+        make_client().create_deployment(
+            "text2sql-agent-pr-999", "external_docker", {}, {}, []
+        )
+
+    message = str(excinfo.value)
+    assert "tracing project" in message
+    assert "Delete the tracing project" in message
+    # Still a ControlPlaneError, so existing handling keeps working.
+    assert isinstance(excinfo.value, control_plane.ControlPlaneError)

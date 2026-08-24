@@ -58,6 +58,10 @@ class ControlPlaneError(RuntimeError):
     """Raised when the control plane returns an unexpected response."""
 
 
+class NameConflictError(ControlPlaneError):
+    """Raised when a deployment name is taken by a leftover tracing project."""
+
+
 def enable_line_buffering() -> None:
     """Stream output line by line so CI logs update during long polls."""
     try:
@@ -234,9 +238,23 @@ class ControlPlaneClient:
             "source_revision_config": source_revision_config,
             "secrets": secrets,
         }
-        response = self._request(
-            "POST", self._url("deployments"), json=body, expected=(200, 201)
-        )
+        try:
+            response = self._request(
+                "POST", self._url("deployments"), json=body, expected=(200, 201)
+            )
+        except ControlPlaneError as exc:
+            # Deleting a deployment leaves its LangSmith tracing project behind,
+            # and a new deployment cannot reuse that name. Reopening a pull
+            # request whose preview was already cleaned up hits this, so explain
+            # the fix rather than surfacing a bare 409.
+            if "409" in str(exc) and "already exists" in str(exc):
+                raise NameConflictError(
+                    f"Cannot create deployment {name!r}: a LangSmith tracing project "
+                    f"of that name already exists, left behind by a previously "
+                    f"deleted deployment. Delete the tracing project named {name!r} "
+                    f"in LangSmith, or deploy under a different name."
+                ) from exc
+            raise
         return response.json()
 
     def patch_deployment(

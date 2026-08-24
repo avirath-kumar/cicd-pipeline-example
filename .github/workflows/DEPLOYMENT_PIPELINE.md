@@ -137,6 +137,25 @@ for the full table of repository variables and secrets.
 | `Refusing to send an API key over plain http` | Use https, or pass `--allow-insecure-host` for an internal instance |
 | `LANGSMITH_GITHUB_INTEGRATION_ID is required` | Fetch it from `GET /v1/integrations/github/install` |
 | Preview never deploys | The pull request is from a fork — previews are skipped by design |
+| `409 ... a project in LangSmith named X already exists` | See *Reopened pull requests* below |
+
+### Reopened pull requests
+
+Creating a deployment also creates a LangSmith tracing project with the same
+name, but **deleting the deployment does not delete that project**. So after
+`cleanup-preview` runs on PR close, the name stays claimed.
+
+If the same pull request is later reopened, the preview deploy fails with:
+
+```
+409: There already exists a project in LangSmith named: text2sql-agent-pr-<n>
+```
+
+The pipeline reports this as a `NameConflictError` explaining the fix rather
+than a bare 409. To resolve it, delete the leftover tracing project of that name
+in LangSmith (**Tracing Projects** → select → delete), then re-run the workflow.
+Keep the project if you still want its traces, and deploy under a different name
+instead.
 
 Check credentials end to end with:
 
