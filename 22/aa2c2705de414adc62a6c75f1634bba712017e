@@ -1,0 +1,19 @@
+dockerfiles/Dockerfile
+  s_d030811ff9a859::t_d138bd99286f18 1-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "22aa2c2705de414adc62a6c75f1634bba712017e",
+  "prompts": {},
+  "sessions": {
+    "s_d030811ff9a859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71f06db4-eaab-48d4-b92d-693f9c588a48",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Johanson <eric.johanson@langchain.dev>"
+    }
+  }
+}
