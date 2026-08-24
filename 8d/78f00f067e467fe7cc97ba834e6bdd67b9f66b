@@ -1,0 +1,21 @@
+.github/workflows/DEPLOYMENT_PIPELINE.md
+  s_d030811ff9a859::t_91af71ae911a9a 137-156
+README.md
+  s_d030811ff9a859::t_5f53c91b504123 49-86
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "8d78f00f067e467fe7cc97ba834e6bdd67b9f66b",
+  "prompts": {},
+  "sessions": {
+    "s_d030811ff9a859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71f06db4-eaab-48d4-b92d-693f9c588a48",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Johanson <eric.johanson@langchain.dev>"
+    }
+  }
+}
