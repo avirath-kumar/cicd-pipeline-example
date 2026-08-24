@@ -1,0 +1,23 @@
+.github/workflows/DEPLOYMENT_PIPELINE.md
+  s_d030811ff9a859::t_a523e55fa83a1c 195-210,228
+examples/langgraph_client.py
+  s_d030811ff9a859::t_a523e55fa83a1c 6-7
+helpers/create_datasets.py
+  s_d030811ff9a859::t_a523e55fa83a1c 4-5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "041c6025fdddf17edc74e15af8428c057efa1c3c",
+  "prompts": {},
+  "sessions": {
+    "s_d030811ff9a859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71f06db4-eaab-48d4-b92d-693f9c588a48",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Johanson <eric.johanson@langchain.dev>"
+    }
+  }
+}
