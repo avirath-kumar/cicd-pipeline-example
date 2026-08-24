@@ -208,6 +208,22 @@ python .github/scripts/langgraph_api.py \
 The action no-ops when the newest revision has already settled, so it is safe to
 run unconditionally before a deploy.
 
+## Long-lived deployments
+
+The pull-request convention (`<prefix>-pr-<n>`, `<prefix>-prod`) suits CI, but a
+demo or a shared environment should not be named after a pull request. Pass
+`--name` to set the name directly:
+
+```bash
+python .github/scripts/langgraph_api.py \
+  --target self-hosted --action deploy-preview --name t2sql-demo \
+  --image-uri "$IMAGE" --secret-env LLM_GATEWAY_API_KEY
+```
+
+`--name` works for every action, so the same deployment can be inspected with
+`--action status --name t2sql-demo` and removed with `--action cleanup-preview
+--name t2sql-demo`. The self-hosted length limit still applies when creating.
+
 ## Naming
 
 - Preview deployments: `<prefix>-pr-<pr-number>` (deployment type `dev`), default `text2sql-pr-<n>`

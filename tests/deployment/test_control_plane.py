@@ -659,3 +659,26 @@ def test_interrupt_is_a_noop_on_a_settled_revision():
     langgraph_api.interrupt_latest(make_client(), "t2sql-pr-1")
     # No interruption call attempted.
     assert not any("interruption" in c.request.url for c in responses.calls)
+
+
+@pytest.mark.deployment
+def test_explicit_name_overrides_the_pr_convention():
+    """Long-lived deployments should not be named after a pull request."""
+    args = langgraph_api.parse_args(
+        ["--action", "status", "--name", "t2sql-demo", "--pr-number", "7"]
+    )
+    assert langgraph_api.resolve_name(args) == "t2sql-demo"
+    # And it is still length-checked when creating on self-hosted.
+    long_args = langgraph_api.parse_args(
+        ["--action", "status", "--name", "a-very-long-deployment-name-here"]
+    )
+    with pytest.raises(ValueError, match="self-hosted allows at most 21"):
+        langgraph_api.resolve_name(long_args, target="self-hosted")
+
+
+@pytest.mark.deployment
+def test_name_falls_back_to_the_convention():
+    pr = langgraph_api.parse_args(["--action", "status", "--pr-number", "7"])
+    assert langgraph_api.resolve_name(pr) == "text2sql-pr-7"
+    prod = langgraph_api.parse_args(["--action", "status"])
+    assert langgraph_api.resolve_name(prod) == "text2sql-prod"
