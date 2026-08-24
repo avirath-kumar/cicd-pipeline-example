@@ -192,6 +192,22 @@ Override it with the `DEPLOYMENT_NAME_PREFIX` repository variable or
 `langgraph_api.py` validates this before deploying and fails immediately with an
 explanation rather than letting it time out.
 
+## Unblocking a stuck revision
+
+A revision that is crash-looping or stuck building **holds the queue**: later
+revisions sit in `QUEUED` behind it until it times out, so one bad deploy stalls
+every push after it.
+
+Cancel it and the queue drains immediately:
+
+```bash
+python .github/scripts/langgraph_api.py \
+  --target saas --action interrupt --pr-number 42
+```
+
+The action no-ops when the newest revision has already settled, so it is safe to
+run unconditionally before a deploy.
+
 ## Naming
 
 - Preview deployments: `<prefix>-pr-<pr-number>` (deployment type `dev`), default `text2sql-pr-<n>`
@@ -209,7 +225,7 @@ Located in [`.github/scripts/`](.):
 | Script | Purpose |
 |---|---|
 | `control_plane.py` | Control plane client: host resolution, auth, payload builders, revision polling |
-| `langgraph_api.py` | CLI for `deploy-preview`, `deploy-production`, `cleanup-preview`, `status` |
+| `langgraph_api.py` | CLI for `deploy-preview`, `deploy-production`, `cleanup-preview`, `status`, `wait`, `interrupt` |
 | `report_deployment.py` | Renders the deployment status PR comment |
 | `report_eval.py` | Renders the evaluation summary PR comment |
 | `list_deployments.py` | Lists workspace deployments — useful for checking credentials |
