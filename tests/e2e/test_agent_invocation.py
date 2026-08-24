@@ -1,10 +1,9 @@
 import pytest
-from langchain_community.utilities.sql_database import SQLDatabase
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_openai import ChatOpenAI
 
 from agents.simple_text2sql import create_agent
-from agents.utils import get_engine_for_chinook_db
+from agents.utils import SQLDatabase, get_engine_for_chinook_db
 
 
 @pytest.mark.e2e

@@ -1,274 +1,306 @@
 #!/usr/bin/env python3
+"""Deploy this agent to LangSmith Deployment from CI.
+
+Handles preview deployments, production deployments and preview cleanup against
+either hosting model:
+
+    # LangSmith Cloud (SaaS) -- builds from the GitHub repo, no Docker needed
+    python .github/scripts/langgraph_api.py \
+        --target saas --action deploy-preview --pr-number 42 \
+        --repo-url https://github.com/org/repo --repo-ref my-branch
+
+    # Self-hosted LangSmith -- deploys an image you already pushed
+    CONTROL_PLANE_HOST=https://langsmith.internal/api-host \
+    python .github/scripts/langgraph_api.py \
+        --target self-hosted --action deploy-preview --pr-number 42 \
+        --image-uri docker.io/org/agent:preview-42
+
+Credentials are read from the environment, never from argv:
+
+    LANGSMITH_API_KEY               required, authenticates to the control plane
+    LANGSMITH_WORKSPACE_ID          required, the workspace to deploy into
+    LANGSMITH_GITHUB_INTEGRATION_ID required for --target saas
+    LANGSMITH_LISTENER_ID           optional, for --target self-hosted
+    CONTROL_PLANE_HOST              required for --target self-hosted
 """
-LangGraph API helper script for deployment management.
-Handles preview deployments, production deployments, and cleanup.
-"""
+
+from __future__ import annotations
 
 import argparse
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List
 
-import requests
+from control_plane import (
+    DEFAULT_POLL_INTERVAL,
+    DEFAULT_WAIT_TIMEOUT,
+    TARGET_SAAS,
+    TARGETS,
+    ControlPlaneClient,
+    ControlPlaneError,
+    build_saas_payload,
+    build_self_hosted_payload,
+    collect_secrets,
+    die,
+    print_deployment,
+    resolve_host,
+    source_for_target,
+    validate_deployment_name,
+    write_github_output,
+)
+
+DEFAULT_SECRET_ENV_VARS = ["OPENAI_API_KEY"]
 
 
-class LangGraphAPI:
-    """LangGraph API client for deployment management."""
+def preview_name(prefix: str, pr_number: int) -> str:
+    return validate_deployment_name(f"{prefix}-pr-{pr_number}")
 
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        # Use the same endpoint as the working script
-        self.base_url = "https://gtm.smith.langchain.dev/api-host/v2"
-        # Fix header name to match working script
-        self.headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
 
-    def list_deployments(self, name_contains: Optional[str] = None) -> Dict[str, Any]:
-        """List deployments with optional name filter."""
-        params = {}
-        if name_contains:
-            params["name_contains"] = name_contains
+def production_name(prefix: str) -> str:
+    return validate_deployment_name(f"{prefix}-prod")
 
-        response = requests.get(
-            f"{self.base_url}/deployments", headers=self.headers, params=params
+
+def build_payload(args: argparse.Namespace, deployment_type: str) -> Dict[str, Any]:
+    """Build the target-specific half of the create/patch request body."""
+    if args.target == TARGET_SAAS:
+        return build_saas_payload(
+            integration_id=os.environ.get("LANGSMITH_GITHUB_INTEGRATION_ID", ""),
+            repo_url=args.repo_url,
+            repo_ref=args.repo_ref,
+            langgraph_config_path=args.langgraph_config_path,
+            deployment_type=deployment_type,
+            build_on_push=args.build_on_push,
         )
+    return build_self_hosted_payload(
+        image_uri=args.image_uri,
+        listener_id=os.environ.get("LANGSMITH_LISTENER_ID"),
+        min_scale=args.min_scale,
+        max_scale=args.max_scale,
+        cpu=args.cpu,
+        memory_mb=args.memory_mb,
+    )
 
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"❌ Failed to list deployments: {response.status_code}")
-            print(f"Response: {response.text}")
-            sys.exit(1)
 
-    def create_deployment(
-        self, name: str, image_uri: str, openai_api_key: Optional[str] = None
-    ) -> Dict[str, Any]:
-        """Create a new deployment."""
-        # Get OpenAI API key from environment if not provided
-        if openai_api_key is None:
-            openai_api_key = os.environ.get("OPENAI_API_KEY")
-            if not openai_api_key:
-                print("❌ OPENAI_API_KEY not found in environment variables")
-                sys.exit(1)
+def deploy(
+    client: ControlPlaneClient,
+    args: argparse.Namespace,
+    name: str,
+    deployment_type: str,
+    secrets: List[Dict[str, str]],
+) -> Dict[str, Any]:
+    """Create the deployment, or add a revision if it already exists."""
+    payload = build_payload(args, deployment_type)
+    existing = client.find_deployment(name)
 
-        # Match the working script structure exactly, but for external_docker
-        request_body = {
-            "name": name,
-            "source": "external_docker",
-            "source_config": {
-                "integration_id": None,
-                "repo_url": None,
-                "deployment_type": None,
-                "build_on_push": None,
-                "custom_url": None,
-                "resource_spec": {
-                    "min_scale": 1,
-                    "max_scale": 1,
-                    "cpu": 1,
-                    "memory_mb": 1024,
-                },
-            },
-            "source_revision_config": {
-                "repo_ref": None,
-                "langgraph_config_path": None,
-                "image_uri": image_uri,
-            },
-            "secrets": [
-                {
-                    "name": "OPENAI_API_KEY",
-                    "value": openai_api_key,
-                }
-            ],
-        }
-
-        print(f"📤 Sending deployment request to: {self.base_url}/deployments")
-        print(f"📦 Payload: {request_body}")
-
-        response = requests.post(
-            f"{self.base_url}/deployments", headers=self.headers, json=request_body
-        )
-
-        print(f"📥 Response status: {response.status_code}")
-        print(f"📥 Response headers: {dict(response.headers)}")
-
-        if response.status_code in [200, 201]:
-            return response.json()
-        else:
-            print(f"❌ Failed to create deployment: {response.status_code}")
-            print(f"Response: {response.text}")
-            print(f"Request URL: {response.url}")
-            print(f"Request headers: {dict(response.request.headers)}")
-            sys.exit(1)
-
-    def update_deployment(self, deployment_id: str, image_uri: str) -> Dict[str, Any]:
-        """Update deployment with new image (creates new revision)."""
-        request_body = {
-            "source_revision_config": {
-                "repo_ref": None,
-                "langgraph_config_path": None,
-                "image_uri": image_uri,
-            }
-        }
-
+    if existing:
         print(
-            f"📤 Sending update request to: {self.base_url}/deployments/{deployment_id}"
+            f"📝 Found existing deployment {name} ({existing['id']}); adding a revision."
         )
-        print(f"📦 Payload: {request_body}")
-
-        response = requests.patch(
-            f"{self.base_url}/deployments/{deployment_id}",
-            headers=self.headers,
-            json=request_body,
+        deployment = client.patch_deployment(
+            existing["id"],
+            payload["source_revision_config"],
+            secrets=secrets,
         )
-
-        print(f"📥 Response status: {response.status_code}")
-        print(f"📥 Response headers: {dict(response.headers)}")
-
-        if response.status_code == 200:
-            return response.json()
-        else:
-            print(f"❌ Failed to update deployment: {response.status_code}")
-            print(f"Response: {response.text}")
-            print(f"Request URL: {response.url}")
-            print(f"Request headers: {dict(response.request.headers)}")
-            sys.exit(1)
-
-    def delete_deployment(self, deployment_id: str) -> bool:
-        """Delete a deployment."""
-        response = requests.delete(
-            f"{self.base_url}/deployments/{deployment_id}", headers=self.headers
+    else:
+        print(f"🆕 Creating deployment {name}.")
+        deployment = client.create_deployment(
+            name,
+            source_for_target(args.target),
+            payload["source_config"],
+            payload["source_revision_config"],
+            secrets,
         )
 
-        if response.status_code == 204:
-            return True
-        else:
-            print(f"❌ Failed to delete deployment: {response.status_code}")
-            print(f"Response: {response.text}")
-            return False
+    print_deployment(deployment)
 
-    def find_deployment_by_name(self, name_contains: str) -> Optional[Dict[str, Any]]:
-        """Find a deployment by name pattern."""
-        deployments = self.list_deployments(name_contains=name_contains)
+    revision_id = deployment.get("latest_revision_id")
+    if args.wait and revision_id:
+        print(f"⏳ Waiting for revision {revision_id} to deploy...")
+        client.wait_for_revision(
+            deployment["id"],
+            revision_id,
+            timeout=args.wait_timeout,
+            interval=args.poll_interval,
+        )
+        # Re-read so the URL reflects the provisioned deployment.
+        deployment = client.find_deployment(name) or deployment
+        print("✅ Revision deployed.")
+        print_deployment(deployment)
 
-        for deployment in deployments.get("resources", []):
-            if name_contains in deployment.get("name", ""):
-                return deployment
-
-        return None
-
-
-def deploy_preview(api: LangGraphAPI, pr_number: int, image_uri: str):
-    """Deploy or update a preview deployment."""
-    deployment_name = f"text2sql-agent-pr-{pr_number}"
-
-    print(f"🔍 Looking for existing preview deployment: {deployment_name}")
-
-    # Check if preview deployment already exists
-    existing_deployment = api.find_deployment_by_name(deployment_name)
-
-    if existing_deployment:
-        print(f"📝 Found existing preview deployment: {existing_deployment['id']}")
-        print(f"🔄 Updating with new image: {image_uri}")
-
-        result = api.update_deployment(existing_deployment["id"], image_uri)
-        print("✅ Preview deployment updated successfully!")
-        print(f"📦 Deployment ID: {result['id']}")
-        print(f"🔗 URL: https://{deployment_name}.langchain.dev")
-
-    else:
-        print(f"🆕 Creating new preview deployment: {deployment_name}")
-        print(f"📦 Image: {image_uri}")
-
-        result = api.create_deployment(deployment_name, image_uri)
-        print("✅ Preview deployment created successfully!")
-        print(f"📦 Deployment ID: {result['id']}")
-        print(f"🔗 URL: https://{deployment_name}.langchain.dev")
+    write_github_output(
+        deployment_id=str(deployment.get("id", "")),
+        deployment_url=str(deployment.get("url") or ""),
+        deployment_name=name,
+    )
+    return deployment
 
 
-def cleanup_preview(api: LangGraphAPI, pr_number: int):
-    """Clean up a preview deployment."""
-    deployment_name = f"text2sql-agent-pr-{pr_number}"
-
-    print(f"🔍 Looking for preview deployment to cleanup: {deployment_name}")
-
-    existing_deployment = api.find_deployment_by_name(deployment_name)
-
-    if existing_deployment:
-        print(f"🗑️  Deleting preview deployment: {existing_deployment['id']}")
-
-        if api.delete_deployment(existing_deployment["id"]):
-            print("✅ Preview deployment deleted successfully!")
-        else:
-            print("❌ Failed to delete preview deployment")
-            sys.exit(1)
-    else:
-        print(f"ℹ️  No preview deployment found for PR #{pr_number}")
+def cleanup_preview(client: ControlPlaneClient, name: str) -> None:
+    existing = client.find_deployment(name)
+    if not existing:
+        print(f"ℹ️  No deployment named {name}; nothing to clean up.")
+        return
+    print(f"🗑️  Deleting deployment {name} ({existing['id']}).")
+    client.delete_deployment(existing["id"])
+    print("✅ Deleted.")
 
 
-def deploy_production(api: LangGraphAPI, image_uri: str):
-    """Deploy or update production deployment."""
-    deployment_name = "text2sql-agent-prod"
-
-    print(f"🔍 Looking for production deployment: {deployment_name}")
-
-    existing_deployment = api.find_deployment_by_name(deployment_name)
-
-    if existing_deployment:
-        print(f"📝 Found existing production deployment: {existing_deployment['id']}")
-        print(f"🔄 Updating with new image: {image_uri}")
-
-        result = api.update_deployment(existing_deployment["id"], image_uri)
-        print("✅ Production deployment updated successfully!")
-        print(f"📦 Deployment ID: {result['id']}")
-        print(f"🔗 URL: https://{deployment_name}.langchain.dev")
-
-    else:
-        print(f"🆕 Creating new production deployment: {deployment_name}")
-        print(f"📦 Image: {image_uri}")
-
-        result = api.create_deployment(deployment_name, image_uri)
-        print("✅ Production deployment created successfully!")
-        print(f"📦 Deployment ID: {result['id']}")
-        print(f"🔗 URL: https://{deployment_name}.langchain.dev")
+def show_status(client: ControlPlaneClient, name: str) -> None:
+    deployment = client.find_deployment(name)
+    if not deployment:
+        die(f"No deployment named {name}.")
+    print_deployment(deployment)
+    revisions = client.list_revisions(deployment["id"])
+    if revisions:
+        latest = revisions[0]
+        print(f"🔁 Latest revision {latest.get('id')}: {latest.get('status')}")
+        if latest.get("status_message"):
+            print(f"   {latest['status_message']}")
 
 
-def main():
-    parser = argparse.ArgumentParser(description="LangGraph API deployment helper")
+def parse_args(argv: List[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--target",
+        choices=TARGETS,
+        default=os.environ.get("LANGSMITH_DEPLOYMENT_TARGET", TARGET_SAAS),
+        help="Which hosting model to deploy to (default: %(default)s).",
+    )
     parser.add_argument(
         "--action",
         required=True,
-        choices=["deploy-preview", "deploy-production", "cleanup-preview"],
-        help="Action to perform",
+        choices=["deploy-preview", "deploy-production", "cleanup-preview", "status"],
     )
-    parser.add_argument("--api-key", required=True, help="LangGraph API key")
-    parser.add_argument("--pr-number", type=int, help="PR number (for preview actions)")
-    parser.add_argument("--image-uri", help="Docker image URI")
     parser.add_argument(
-        "--openai-api-key",
-        help="OpenAI API key (optional, will use env var if not provided)",
+        "--name-prefix",
+        default=os.environ.get("DEPLOYMENT_NAME_PREFIX", "text2sql-agent"),
+        help="Prefix for deployment names (default: %(default)s).",
+    )
+    parser.add_argument("--pr-number", type=int, help="PR number, for preview actions.")
+
+    # Control plane location.
+    parser.add_argument(
+        "--control-plane-host",
+        default=os.environ.get("CONTROL_PLANE_HOST"),
+        help="Control plane base URL. Defaults to the SaaS host for --region; "
+        "required for --target self-hosted (https://<host>/api-host).",
+    )
+    parser.add_argument(
+        "--region",
+        default=os.environ.get("LANGSMITH_REGION", "us"),
+        help="LangSmith Cloud data region: us, eu, apac or aws-us (default: %(default)s).",
+    )
+    parser.add_argument(
+        "--allow-insecure-host",
+        action="store_true",
+        help="Permit a plain http control plane host (internal instances only).",
     )
 
-    args = parser.parse_args()
+    # SaaS (github source).
+    parser.add_argument(
+        "--repo-url",
+        default=os.environ.get("DEPLOYMENT_REPO_URL", ""),
+        help="GitHub repository URL to deploy from (SaaS).",
+    )
+    parser.add_argument(
+        "--repo-ref",
+        default=os.environ.get("DEPLOYMENT_REPO_REF", "main"),
+        help="Git branch or tag to deploy (SaaS, default: %(default)s).",
+    )
+    parser.add_argument(
+        "--langgraph-config-path",
+        default="langgraph.json",
+        help="Path to langgraph.json in the repo (SaaS, default: %(default)s).",
+    )
+    parser.add_argument(
+        "--build-on-push",
+        action="store_true",
+        help="Let the control plane rebuild on every push to the ref (SaaS).",
+    )
 
-    api = LangGraphAPI(args.api_key)
+    # Self-hosted (external_docker source).
+    parser.add_argument(
+        "--image-uri", default="", help="Docker image URI (self-hosted)."
+    )
+    parser.add_argument("--min-scale", type=int, default=1)
+    parser.add_argument("--max-scale", type=int, default=1)
+    parser.add_argument("--cpu", type=float, default=1)
+    parser.add_argument("--memory-mb", type=int, default=1024)
 
-    if args.action == "deploy-preview":
-        if not args.pr_number or not args.image_uri:
-            print("❌ PR number and image URI are required for preview deployment")
-            sys.exit(1)
-        deploy_preview(api, args.pr_number, args.image_uri)
+    # Secrets and polling.
+    parser.add_argument(
+        "--secret-env",
+        action="append",
+        metavar="NAME",
+        help="Environment variable to forward as a deployment secret. Repeatable. "
+        f"Default: {', '.join(DEFAULT_SECRET_ENV_VARS)}. Values are read from the "
+        "environment and never logged.",
+    )
+    parser.add_argument(
+        "--wait",
+        action="store_true",
+        help="Block until the new revision reaches DEPLOYED.",
+    )
+    parser.add_argument("--wait-timeout", type=float, default=DEFAULT_WAIT_TIMEOUT)
+    parser.add_argument("--poll-interval", type=float, default=DEFAULT_POLL_INTERVAL)
 
-    elif args.action == "deploy-production":
-        if not args.image_uri:
-            print("❌ Image URI is required for production deployment")
-            sys.exit(1)
-        deploy_production(api, args.image_uri)
+    return parser.parse_args(argv)
 
-    elif args.action == "cleanup-preview":
-        if not args.pr_number:
-            print("❌ PR number is required for preview cleanup")
-            sys.exit(1)
-        cleanup_preview(api, args.pr_number)
+
+def main(argv: List[str]) -> int:
+    args = parse_args(argv)
+
+    if args.action in ("deploy-preview", "cleanup-preview") and not args.pr_number:
+        die(f"--pr-number is required for {args.action}.")
+    if args.pr_number is not None and args.pr_number <= 0:
+        die(f"--pr-number must be positive, got {args.pr_number}.")
+
+    try:
+        host = resolve_host(
+            args.target, host=args.control_plane_host, region=args.region
+        )
+        client = ControlPlaneClient(
+            host,
+            os.environ.get("LANGSMITH_API_KEY", ""),
+            os.environ.get("LANGSMITH_WORKSPACE_ID", ""),
+            allow_insecure=args.allow_insecure_host,
+        )
+    except (ControlPlaneError, ValueError) as exc:
+        die(str(exc))
+
+    print(f"🎯 Target: {args.target}  •  control plane: {client.host}")
+
+    try:
+        if args.action == "cleanup-preview":
+            cleanup_preview(client, preview_name(args.name_prefix, args.pr_number))
+        elif args.action == "status":
+            name = (
+                preview_name(args.name_prefix, args.pr_number)
+                if args.pr_number
+                else production_name(args.name_prefix)
+            )
+            show_status(client, name)
+        else:
+            secrets = collect_secrets(args.secret_env or DEFAULT_SECRET_ENV_VARS)
+            print(f"🔐 Forwarding secrets: {', '.join(s['name'] for s in secrets)}")
+            if args.action == "deploy-preview":
+                deploy(
+                    client,
+                    args,
+                    preview_name(args.name_prefix, args.pr_number),
+                    "dev",
+                    secrets,
+                )
+            else:
+                deploy(client, args, production_name(args.name_prefix), "prod", secrets)
+    except (ControlPlaneError, ValueError) as exc:
+        die(str(exc))
+
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))

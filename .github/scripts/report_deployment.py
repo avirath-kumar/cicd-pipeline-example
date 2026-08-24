@@ -1,309 +1,225 @@
 #!/usr/bin/env python3
+"""Render a LangSmith Deployment status report for a PR comment.
+
+The output of this script is posted verbatim as a public pull request comment,
+so it deliberately reports only non-sensitive fields: status, URL, IDs and the
+*names* of configured secrets. Secret values and request headers never appear.
 """
-LangGraph deployment status reporter.
-Generates deployment status reports and creates PR comments with deployment details.
-"""
+
+from __future__ import annotations
 
 import argparse
 import os
 import sys
-from datetime import datetime
-from typing import Any, Dict, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
-import requests
+from control_plane import (
+    TARGETS,
+    ControlPlaneClient,
+    ControlPlaneError,
+    die,
+    resolve_host,
+)
+
+DEPLOYMENT_STATUS_EMOJI = {
+    "AWAITING_DATABASE": "⏳",
+    "READY": "✅",
+    "UNUSED": "⏸️",
+    "AWAITING_DELETE": "🗑️",
+    "AWAITING_FINAL_DELETE": "🗑️",
+    "UNKNOWN": "❓",
+}
+
+REVISION_STATUS_EMOJI = {
+    "CREATING": "🔨",
+    "QUEUED": "⏳",
+    "AWAITING_BUILD": "⏳",
+    "BUILDING": "🔨",
+    "AWAITING_DEPLOY": "⏳",
+    "DEPLOYING": "🚀",
+    "CREATE_FAILED": "❌",
+    "BUILD_FAILED": "❌",
+    "DEPLOY_FAILED": "❌",
+    "DEPLOYED": "✅",
+    "SKIPPED": "⏭️",
+    "INTERRUPTED": "⏸️",
+    "UNKNOWN": "❓",
+}
+
+IN_PROGRESS_REVISION_STATUSES = (
+    "BUILDING",
+    "DEPLOYING",
+    "QUEUED",
+    "CREATING",
+    "AWAITING_BUILD",
+    "AWAITING_DEPLOY",
+)
 
 
-class DeploymentReporter:
-    """LangGraph deployment status reporter."""
-
-    def __init__(self, api_key: str):
-        self.api_key = api_key
-        self.base_url = "https://gtm.smith.langchain.dev/api-host/v2"
-        # Fix header name to match working script
-        self.headers = {"X-Api-Key": api_key, "Content-Type": "application/json"}
-
-    def get_deployment_status(self, deployment_name: str) -> Optional[Dict[str, Any]]:
-        """Get deployment status by name."""
-        try:
-            response = requests.get(
-                f"{self.base_url}/deployments",
-                headers=self.headers,
-                params={"name_contains": deployment_name},
-            )
-
-            if response.status_code == 200:
-                deployments = response.json()
-                for deployment in deployments.get("resources", []):
-                    if deployment.get("name") == deployment_name:
-                        return deployment
-            else:
-                print(f"❌ Failed to get deployment status: {response.status_code}")
-                print(f"Response: {response.text}")
-
-        except Exception as e:
-            print(f"❌ Error getting deployment status: {e}")
-
+def format_timestamp(value: Optional[str]) -> Optional[str]:
+    if not value:
         return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return value
+    return parsed.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    def get_deployment_revisions(self, deployment_id: str) -> Optional[Dict[str, Any]]:
-        """Get deployment revisions."""
-        try:
-            response = requests.get(
-                f"{self.base_url}/deployments/{deployment_id}/revisions",
-                headers=self.headers,
-            )
 
-            if response.status_code == 200:
-                return response.json()
-            else:
-                print(f"❌ Failed to get deployment revisions: {response.status_code}")
-                print(f"Response: {response.text}")
-
-        except Exception as e:
-            print(f"❌ Error getting deployment revisions: {e}")
-
-        return None
-
-    def format_status_emoji(self, status: str) -> str:
-        """Format deployment status with emoji."""
-        status_map = {
-            "AWAITING_DATABASE": "⏳",
-            "READY": "✅",
-            "UNUSED": "⏸️",
-            "AWAITING_DELETE": "🗑️",
-            "UNKNOWN": "❓",
-        }
-        return status_map.get(status, "❓")
-
-    def format_revision_status_emoji(self, status: str) -> str:
-        """Format revision status with emoji."""
-        status_map = {
-            "CREATING": "🔨",
-            "AWAITING_BUILD": "⏳",
-            "BUILDING": "🔨",
-            "AWAITING_DEPLOY": "⏳",
-            "DEPLOYING": "🚀",
-            "CREATE_FAILED": "❌",
-            "BUILD_FAILED": "❌",
-            "DEPLOY_FAILED": "❌",
-            "DEPLOYED": "✅",
-            "INTERRUPTED": "⏸️",
-            "UNKNOWN": "❓",
-        }
-        return status_map.get(status, "❓")
-
-    def get_deployment_url(self, deployment_name: str) -> str:
-        """Get deployment URL."""
-        return f"https://{deployment_name}.langchain.dev"
-
-    def generate_deployment_report(
-        self, deployment_name: str, image_uri: str, deployment_type: str = "preview"
-    ) -> Dict[str, Any]:
-        """Generate comprehensive deployment report."""
-        print(f"🔍 Generating deployment report for: {deployment_name}")
-
-        deployment = self.get_deployment_status(deployment_name)
-
-        if not deployment:
-            return {
-                "deployment_name": deployment_name,
-                "status": "NOT_FOUND",
-                "error": "Deployment not found",
-            }
-
-        # Get latest revision details
-        latest_revision = None
-        if deployment.get("latest_revision_id"):
-            revisions = self.get_deployment_revisions(deployment["id"])
-            if revisions and revisions.get("resources"):
-                latest_revision = revisions["resources"][0]  # Most recent revision
-
-        # Extract image info
-        image_info = {
-            "uri": image_uri,
-            "tag": image_uri.split(":")[-1] if ":" in image_uri else "latest",
-            "registry": image_uri.split("/")[0] if "/" in image_uri else "unknown",
-        }
-
-        # Build report
-        report = {
+def build_report(
+    client: ControlPlaneClient,
+    deployment_name: str,
+    deployment_type: str,
+    target: str,
+) -> Dict[str, Any]:
+    deployment = client.find_deployment(deployment_name)
+    if not deployment:
+        return {
             "deployment_name": deployment_name,
-            "deployment_id": deployment.get("id"),
-            "status": deployment.get("status", "UNKNOWN"),
-            "status_emoji": self.format_status_emoji(
-                deployment.get("status", "UNKNOWN")
-            ),
-            "url": self.get_deployment_url(deployment_name),
-            "created_at": deployment.get("created_at"),
-            "updated_at": deployment.get("updated_at"),
-            "deployment_type": deployment_type,
-            "image_info": image_info,
-            "latest_revision": latest_revision,
-            "revision_status": (
-                latest_revision.get("status", "UNKNOWN")
-                if latest_revision
-                else "UNKNOWN"
-            ),
-            "revision_status_emoji": (
-                self.format_revision_status_emoji(
-                    latest_revision.get("status", "UNKNOWN")
-                )
-                if latest_revision
-                else "❓"
-            ),
+            "error": f"No deployment named `{deployment_name}` was found.",
         }
 
-        return report
+    revisions = client.list_revisions(deployment["id"])
+    latest = revisions[0] if revisions else {}
+    revision_status = latest.get("status", "UNKNOWN")
+    status = deployment.get("status", "UNKNOWN")
+    revision_config = deployment.get("source_revision_config") or {}
 
-    def write_markdown_report(
-        self, report: Dict[str, Any], output_file: str = "deployment_comment.md"
-    ):
-        """Write deployment report to markdown file."""
-        print(f"📝 Writing deployment report to {output_file}")
-
-        with open(output_file, "w") as f:
-            f.write("# 🚀 LangGraph Deployment Status\n\n")
-
-            if "error" in report:
-                f.write("### ❌ Deployment Failed\n\n")
-                f.write(f"**Error:** {report['error']}\n\n")
-                return
-
-            # Deployment header
-            deployment_type = report.get("deployment_type", "unknown").title()
-            status_emoji = report.get("status_emoji", "❓")
-            status = report.get("status", "UNKNOWN")
-
-            f.write(
-                f"### {status_emoji} {deployment_type} Deployment: `{report['deployment_name']}`\n\n"
-            )
-
-            # Status table
-            f.write("| Property | Value |\n")
-            f.write("|----------|-------|\n")
-            f.write(f"| **Status** | {status_emoji} {status} |\n")
-            f.write(f"| **URL** | [{report['url']}]({report['url']}) |\n")
-            f.write(f"| **Deployment ID** | `{report['deployment_id']}` |\n")
-
-            # Image info
-            image_info = report.get("image_info", {})
-            f.write(f"| **Image** | `{image_info.get('uri', 'N/A')}` |\n")
-            f.write(f"| **Tag** | `{image_info.get('tag', 'N/A')}` |\n")
-
-            # Timestamps
-            if report.get("created_at"):
-                created_time = datetime.fromisoformat(
-                    report["created_at"].replace("Z", "+00:00")
-                )
-                f.write(
-                    f"| **Created** | {created_time.strftime('%Y-%m-%d %H:%M:%S UTC')} |\n"
-                )
-
-            if report.get("updated_at"):
-                updated_time = datetime.fromisoformat(
-                    report["updated_at"].replace("Z", "+00:00")
-                )
-                f.write(
-                    f"| **Updated** | {updated_time.strftime('%Y-%m-%d %H:%M:%S UTC')} |\n"
-                )
-
-            # Revision status
-            revision_status = report.get("revision_status", "UNKNOWN")
-            revision_emoji = report.get("revision_status_emoji", "❓")
-            f.write(f"| **Revision Status** | {revision_emoji} {revision_status} |\n")
-
-            f.write("\n")
-
-            # Additional info based on status
-            if status == "READY" and revision_status == "DEPLOYED":
-                f.write("🎉 **Deployment is ready and accessible!**\n\n")
-            elif status == "AWAITING_DATABASE":
-                f.write("⏳ **Deployment is being set up...**\n\n")
-            elif "FAILED" in revision_status:
-                f.write(
-                    "❌ **Deployment failed. Check the logs for more details.**\n\n"
-                )
-            elif revision_status in ["BUILDING", "DEPLOYING"]:
-                f.write("🚀 **Deployment is in progress...**\n\n")
-
-            # Footer
-            f.write("---\n")
-            f.write(
-                f"*Deployment report generated at {datetime.now().strftime('%Y-%m-%d %H:%M:%S UTC')}*\n"
-            )
-
-        print(f"✅ Deployment report written to {output_file}")
+    return {
+        "deployment_name": deployment_name,
+        "deployment_id": deployment.get("id"),
+        "deployment_type": deployment_type,
+        "target": target,
+        "status": status,
+        "status_emoji": DEPLOYMENT_STATUS_EMOJI.get(status, "❓"),
+        "url": deployment.get("url"),
+        "source": deployment.get("source"),
+        "image_uri": revision_config.get("image_uri"),
+        "repo_ref": revision_config.get("repo_ref"),
+        "created_at": format_timestamp(deployment.get("created_at")),
+        "updated_at": format_timestamp(deployment.get("updated_at")),
+        "revision_id": latest.get("id"),
+        "revision_status": revision_status,
+        "revision_status_emoji": REVISION_STATUS_EMOJI.get(revision_status, "❓"),
+        "revision_status_message": latest.get("status_message"),
+        # Names only -- values must never reach a public comment.
+        "secret_names": sorted(
+            name
+            for name in (s.get("name") for s in deployment.get("secrets") or [])
+            if name
+        ),
+    }
 
 
-def main():
-    """Main CLI entry point."""
-    parser = argparse.ArgumentParser(
-        description="Generate LangGraph deployment status reports for PR comments",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  # Generate deployment report for preview deployment
-  python report_deployment.py --deployment-name text2sql-agent-pr-123 --image-uri docker.io/perinim98/text2sql-agent:preview-123 --deployment-type preview
+def write_markdown_report(report: Dict[str, Any], output_file: str) -> None:
+    lines: List[str] = ["# 🚀 LangSmith Deployment status", ""]
 
-  # Generate deployment report for production deployment
-  python report_deployment.py --deployment-name text2sql-agent-prod --image-uri docker.io/perinim98/text2sql-agent:latest --deployment-type production
-        """,
-    )
-
-    parser.add_argument(
-        "--deployment-name", required=True, help="Name of the deployment to report on"
-    )
-
-    parser.add_argument(
-        "--image-uri", required=True, help="Docker image URI used for deployment"
-    )
-
-    parser.add_argument(
-        "--deployment-type",
-        choices=["preview", "production"],
-        default="preview",
-        help="Type of deployment (default: preview)",
-    )
-
-    parser.add_argument(
-        "--output",
-        "-o",
-        default="deployment_comment.md",
-        help="Output markdown file (default: deployment_comment.md)",
-    )
-
-    parser.add_argument(
-        "--verbose", "-v", action="store_true", help="Enable verbose output"
-    )
-
-    args = parser.parse_args()
-
-    # Set up API client
-    api_key = os.environ.get("LANGSMITH_API_KEY")
-    if not api_key:
-        print("❌ LANGSMITH_API_KEY environment variable is required")
-        sys.exit(1)
-
-    reporter = DeploymentReporter(api_key)
-
-    # Generate report
-    report = reporter.generate_deployment_report(
-        args.deployment_name, args.image_uri, args.deployment_type
-    )
-
-    # Write report
-    reporter.write_markdown_report(report, args.output)
-
-    # Summary
     if "error" in report:
-        print(f"❌ Deployment report failed: {report['error']}")
-        sys.exit(1)
+        lines += ["### ❌ Deployment not found", "", report["error"], ""]
+        _write(output_file, lines)
+        return
+
+    heading = report["deployment_type"].title()
+    lines += [
+        f"### {report['status_emoji']} {heading} deployment: `{report['deployment_name']}`",
+        "",
+        "| Property | Value |",
+        "|----------|-------|",
+        f"| **Hosting** | {report['target']} |",
+        f"| **Status** | {report['status_emoji']} {report['status']} |",
+    ]
+
+    if report.get("url"):
+        lines.append(f"| **URL** | [{report['url']}]({report['url']}) |")
     else:
-        status = report.get("status", "UNKNOWN")
-        print("✅ Deployment report generated successfully!")
-        print(f"📊 Status: {status}")
-        print(f"🔗 URL: {report.get('url', 'N/A')}")
+        lines.append("| **URL** | _not provisioned yet_ |")
+
+    lines.append(f"| **Deployment ID** | `{report['deployment_id']}` |")
+    lines.append(f"| **Source** | `{report.get('source') or 'unknown'}` |")
+
+    if report.get("image_uri"):
+        lines.append(f"| **Image** | `{report['image_uri']}` |")
+    if report.get("repo_ref"):
+        lines.append(f"| **Git ref** | `{report['repo_ref']}` |")
+    if report.get("created_at"):
+        lines.append(f"| **Created** | {report['created_at']} |")
+    if report.get("updated_at"):
+        lines.append(f"| **Updated** | {report['updated_at']} |")
+
+    lines.append(
+        f"| **Revision** | {report['revision_status_emoji']} {report['revision_status']} |"
+    )
+    if report.get("secret_names"):
+        lines.append(
+            f"| **Secrets configured** | {', '.join(report['secret_names'])} |"
+        )
+
+    lines.append("")
+
+    revision_status = report["revision_status"]
+    if report["status"] == "READY" and revision_status == "DEPLOYED":
+        lines += ["🎉 **Deployment is ready and accessible.**", ""]
+    elif "FAILED" in revision_status:
+        detail = report.get("revision_status_message") or "Check the deployment logs."
+        lines += [f"❌ **Deployment failed.** {detail}", ""]
+    elif revision_status in IN_PROGRESS_REVISION_STATUSES:
+        lines += ["🚀 **Deployment is in progress...**", ""]
+    elif report["status"] == "AWAITING_DATABASE":
+        lines += ["⏳ **Deployment is being set up...**", ""]
+
+    lines += [
+        "---",
+        f"_Report generated at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}_",
+    ]
+    _write(output_file, lines)
+
+
+def _write(output_file: str, lines: List[str]) -> None:
+    with open(output_file, "w", encoding="utf-8") as handle:
+        handle.write("\n".join(lines) + "\n")
+    print(f"✅ Wrote deployment report to {output_file}")
+
+
+def main(argv: List[str]) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--deployment-name", required=True)
+    parser.add_argument(
+        "--deployment-type", choices=["preview", "production"], default="preview"
+    )
+    parser.add_argument(
+        "--target",
+        choices=TARGETS,
+        default=os.environ.get("LANGSMITH_DEPLOYMENT_TARGET", "saas"),
+    )
+    parser.add_argument(
+        "--control-plane-host", default=os.environ.get("CONTROL_PLANE_HOST")
+    )
+    parser.add_argument("--region", default=os.environ.get("LANGSMITH_REGION", "us"))
+    parser.add_argument("--allow-insecure-host", action="store_true")
+    parser.add_argument("--output", "-o", default="deployment_comment.md")
+    args = parser.parse_args(argv)
+
+    try:
+        client = ControlPlaneClient(
+            resolve_host(args.target, host=args.control_plane_host, region=args.region),
+            os.environ.get("LANGSMITH_API_KEY", ""),
+            os.environ.get("LANGSMITH_WORKSPACE_ID", ""),
+            allow_insecure=args.allow_insecure_host,
+        )
+        report = build_report(
+            client, args.deployment_name, args.deployment_type, args.target
+        )
+    except (ControlPlaneError, ValueError) as exc:
+        die(str(exc))
+
+    write_markdown_report(report, args.output)
+    if "error" in report:
+        print(f"❌ {report['error']}", file=sys.stderr)
+        return 1
+    print(f"📊 Status: {report['status']} • revision {report['revision_status']}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]))

@@ -1,10 +1,11 @@
 # Makefile for Project Automation
 
-.PHONY: install lint test build all clean security-scan format
+.PHONY: install lint test test-deployment build all clean security-scan format pre-commit
 
 # Variables
 PACKAGE_NAME = agents
 TEST_DIR = tests
+SCRIPTS_DIR = .github/scripts
 
 # Default target
 all: lint test
@@ -15,13 +16,17 @@ install:
 
 # Linting and Formatting Checks
 lint:
-	uv run ruff check $(PACKAGE_NAME) $(TEST_DIR)
-	uv run black --check $(PACKAGE_NAME) $(TEST_DIR)
-	uv run isort --check-only $(PACKAGE_NAME) $(TEST_DIR)
+	uv run ruff check $(PACKAGE_NAME) $(TEST_DIR) $(SCRIPTS_DIR)
+	uv run black --check $(PACKAGE_NAME) $(TEST_DIR) $(SCRIPTS_DIR)
+	uv run isort --check-only $(PACKAGE_NAME) $(TEST_DIR) $(SCRIPTS_DIR)
 
 # Run Tests with Coverage
 test:
 	uv run pytest --cov=$(PACKAGE_NAME) --cov-report=xml $(TEST_DIR)/
+
+# Test the deployment client for both hosting models (no credentials needed)
+test-deployment:
+	uv run pytest $(TEST_DIR)/deployment/ -v
 
 # Run Pre-Commit Hooks
 pre-commit:
@@ -29,13 +34,13 @@ pre-commit:
 
 # Format Code (auto-fix)
 format:
-	uv run black $(PACKAGE_NAME) $(TEST_DIR)
-	uv run isort $(PACKAGE_NAME) $(TEST_DIR)
-	uv run ruff check --fix $(PACKAGE_NAME) $(TEST_DIR)
+	uv run black $(PACKAGE_NAME) $(TEST_DIR) $(SCRIPTS_DIR)
+	uv run isort $(PACKAGE_NAME) $(TEST_DIR) $(SCRIPTS_DIR)
+	uv run ruff check --fix $(PACKAGE_NAME) $(TEST_DIR) $(SCRIPTS_DIR)
 
 # Security Scanning
 security-scan:
-	uv run bandit -r $(PACKAGE_NAME)/
+	uv run bandit -r $(PACKAGE_NAME)/ $(SCRIPTS_DIR)/
 
 # Clean Up Generated Files
 clean:

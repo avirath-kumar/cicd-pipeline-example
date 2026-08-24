@@ -1,9 +1,34 @@
 import sqlite3
 
 import requests
-from langchain_community.utilities.sql_database import SQLDatabase
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
+
+
+class SQLDatabase:
+    """Minimal SQLAlchemy-backed database helper.
+
+    Replaces ``langchain_community.utilities.sql_database.SQLDatabase``, which was
+    sunset upstream. Only the two methods this agent needs are implemented, and
+    ``run`` keeps the original string return format so prompts stay unchanged.
+    """
+
+    def __init__(self, engine: Engine):
+        self._engine = engine
+
+    def get_usable_table_names(self) -> list:
+        """Return the alphabetically sorted names of every table."""
+        return sorted(inspect(self._engine).get_table_names())
+
+    def run(self, command: str) -> str:
+        """Execute a SQL statement and return its rows as a string."""
+        with self._engine.connect() as connection:
+            result = connection.execute(text(command))
+            if not result.returns_rows:
+                return ""
+            rows = [tuple(row) for row in result.fetchall()]
+        return str(rows) if rows else ""
 
 
 # fetch the chinook database from github and create an in-memory database

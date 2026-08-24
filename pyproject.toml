@@ -35,14 +35,14 @@ classifiers = [
 requires-python = ">=3.11,<4.0"
 
 dependencies = [
-    "python-dotenv>=1.0.1",
-    "langchain-openai>=0.3.18",
-    "langgraph>=0.4.7",
-    "langgraph-cli[inmem]>=0.0.19",
-    "langchain-anthropic>=0.3.13",
-    "langchain-community>=0.3.27",
-    "sqlalchemy>=2.0.41",
-    "requests>=2.31.0"
+    "python-dotenv>=1.1.1",
+    "langchain-core>=1.6.0",
+    "langchain-openai>=1.6.0",
+    "langgraph>=1.2.11",
+    "langgraph-cli[inmem]>=0.4.31",
+    "langchain-anthropic>=1.6.1",
+    "sqlalchemy>=2.0.44",
+    "requests>=2.32.5"
 ]
 
 [project.optional-dependencies]
@@ -50,9 +50,11 @@ docs = ["sphinx==6.0", "furo==2024.5.6"]
 
 [tool.uv]
 managed = true
-dev-dependencies = [
-    "pytest>=7.4.0",
-    "pytest-mock==3.14.0",
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-mock>=3.15.0",
     "pylint>=3.2.5",
     "pytest-asyncio>=0.23.8",
     "aioresponses>=0.7.7",
@@ -66,8 +68,8 @@ dev-dependencies = [
     "pre-commit>=4.0.1",
     "bandit>=1.8.6",
     "types-setuptools>=75.6.0.20241126",
-    "langsmith[pytest]>=0.4.8",
-    "openevals>=0.1.0"
+    "langsmith[pytest]>=0.11.1",
+    "openevals>=0.2.0"
 ]
 
 [tool.black]
@@ -103,5 +105,6 @@ markers = [
     "single_node: marks tests for individual LangGraph nodes (unit-level)",
     "utils: marks tests for internal utility functions like schema extraction",
     "e2e: marks end-to-end tests that run the full graph with real data",
-    "evaluator: marks tests that evaluate agent performance using LLM judges"
+    "evaluator: marks tests that evaluate agent performance using LLM judges",
+    "deployment: marks tests for the LangSmith Deployment control plane client"
 ]

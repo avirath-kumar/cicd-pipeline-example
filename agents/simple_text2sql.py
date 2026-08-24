@@ -1,5 +1,4 @@
 from dotenv import load_dotenv
-from langchain_community.utilities.sql_database import SQLDatabase
 from langchain_core.messages import AnyMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
@@ -7,7 +6,11 @@ from langgraph.graph.message import add_messages
 from typing_extensions import Annotated, List, TypedDict
 
 from agents.prompts import QA_SYSTEM_PROMPT, SQL_SYSTEM_PROMPT
-from agents.utils import get_detailed_table_info, get_engine_for_chinook_db
+from agents.utils import (
+    SQLDatabase,
+    get_detailed_table_info,
+    get_engine_for_chinook_db,
+)
 
 load_dotenv(override=True)
 

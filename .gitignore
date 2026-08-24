@@ -1,7 +1,17 @@
-# Environment variables
+# Environment variables and secret material
 .env
 .env.local
 .env.*.local
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+credentials.json
+
+# Generated CI reports
+deployment_comment.md
+eval_comment.md
 
 # Virtual environments
 venv/

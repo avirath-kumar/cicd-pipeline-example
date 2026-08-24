@@ -1,210 +1,191 @@
 name: Production Deployment & Cleanup
 
-# Trigger on PR close/merge to main
+# When a pull request closes, tear down its preview. If it was merged, cut a new
+# production revision from main.
 on:
   pull_request:
-    branches: [ main ]
-    types: [ closed ]
+    branches: [main]
+    types: [closed]
 
-# Set environment variables
 env:
   PYTHON_VERSION: '3.11'
-  REGISTRY: docker.io
-  IMAGE_NAME: perinim98/text2sql-agent
-  LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
-  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  # Set the LANGSMITH_DEPLOYMENT_TARGET repository variable to `saas` or
+  # `self-hosted`. SaaS builds from this repository; self-hosted deploys a
+  # Docker image that this workflow builds and pushes.
+  DEPLOYMENT_TARGET: ${{ vars.LANGSMITH_DEPLOYMENT_TARGET || 'saas' }}
+  REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
+  IMAGE_NAME: ${{ vars.IMAGE_NAME || github.repository }}
+  PR_NUMBER: ${{ github.event.pull_request.number }}
 
-# Add permissions for PR comments
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
-  packages: write
 
 jobs:
-  # Job 1: Cleanup preview deployment
+  # Previews are never created for fork pull requests (a fork has no access to
+  # the deployment credentials), so there is nothing to clean up for one.
   cleanup-preview:
+    name: Delete preview deployment
+    if: github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
 
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-cleanup-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-cleanup-
+      - name: Install dependencies
+        run: uv sync
 
-    - name: Install dependencies
-      run: uv sync
+      - name: Delete the preview deployment
+        env:
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          LANGSMITH_WORKSPACE_ID: ${{ secrets.LANGSMITH_WORKSPACE_ID }}
+          CONTROL_PLANE_HOST: ${{ secrets.CONTROL_PLANE_HOST }}
+          LANGSMITH_REGION: ${{ vars.LANGSMITH_REGION || 'us' }}
+        run: |
+          uv run python .github/scripts/langgraph_api.py \
+            --target "$DEPLOYMENT_TARGET" \
+            --action cleanup-preview \
+            --pr-number "$PR_NUMBER"
 
-    - name: Install requests
-      run: pip install requests
-
-    - name: Cleanup preview deployment
-      run: |
-        python .github/scripts/langgraph_api.py \
-          --action cleanup-preview \
-          --pr-number ${{ github.event.pull_request.number }} \
-          --api-key ${{ secrets.LANGSMITH_API_KEY }}
-
-  # Job 2: Build and push production Docker image (only if PR was merged)
-  build-and-push:
+  # Self-hosted LangSmith runs an image you supply. SaaS skips this job and has
+  # the control plane build from the merge commit instead.
+  build-production-image:
+    name: Build production image (self-hosted only)
     needs: cleanup-preview
-    if: github.event.pull_request.merged == true
+    if: >-
+      github.event.pull_request.merged == true &&
+      (vars.LANGSMITH_DEPLOYMENT_TARGET || 'saas') == 'self-hosted'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to the container registry
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=main-
+          labels: |
+            org.opencontainers.image.title=Text2SQL Agent
+            org.opencontainers.image.description=Text-to-SQL agent built with LangGraph
+
+      - name: Build and push production image
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: ./dockerfiles/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-production:
+    name: Deploy to production
+    needs: [cleanup-preview, build-production-image]
+    # `always()` so the SaaS path still runs when the image job is skipped.
+    if: >-
+      always() &&
+      github.event.pull_request.merged == true &&
+      needs.cleanup-preview.result == 'success' &&
+      needs.build-production-image.result != 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: read
-      packages: write
-
+      pull-requests: write
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
 
-    - name: Log in to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ secrets.DOCKER_USERNAME }}
-        password: ${{ secrets.DOCKER_PASSWORD }}
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=raw,value=latest
-          type=sha,prefix=main-
-        labels: |
-          org.opencontainers.image.title=Text2SQL Agent
-          org.opencontainers.image.description=Text-to-SQL Agent built with LangGraph
-          org.opencontainers.image.vendor=Text2SQL Agent
+      - name: Install dependencies
+        run: uv sync
 
-    - name: Build and push production Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: ./dockerfiles/Dockerfile
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        platforms: linux/amd64,linux/arm64
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        build-args: |
-          PYTHON_VERSION=${{ env.PYTHON_VERSION }}
-          BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
-          VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+      # Credentials are passed through the environment, never on the command
+      # line, so they cannot appear in the rendered command in workflow logs.
+      - name: Deploy to production
+        env:
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          LANGSMITH_WORKSPACE_ID: ${{ secrets.LANGSMITH_WORKSPACE_ID }}
+          LANGSMITH_GITHUB_INTEGRATION_ID: ${{ secrets.LANGSMITH_GITHUB_INTEGRATION_ID }}
+          LANGSMITH_LISTENER_ID: ${{ secrets.LANGSMITH_LISTENER_ID }}
+          CONTROL_PLANE_HOST: ${{ secrets.CONTROL_PLANE_HOST }}
+          LANGSMITH_REGION: ${{ vars.LANGSMITH_REGION || 'us' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          REPO_REF: ${{ github.event.pull_request.base.ref }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          uv run python .github/scripts/langgraph_api.py \
+            --target "$DEPLOYMENT_TARGET" \
+            --action deploy-production \
+            --repo-url "$REPO_URL" \
+            --repo-ref "$REPO_REF" \
+            --image-uri "$REGISTRY/$IMAGE_NAME:latest" \
+            --wait
 
-    - name: Output image details
-      run: |
-        echo "🐳 Production Docker image built and pushed successfully!"
-        echo "📦 Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
-        echo "🏷️  Tags: ${{ steps.meta.outputs.tags }}"
+      - name: Generate deployment status report
+        if: always()
+        env:
+          LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
+          LANGSMITH_WORKSPACE_ID: ${{ secrets.LANGSMITH_WORKSPACE_ID }}
+          CONTROL_PLANE_HOST: ${{ secrets.CONTROL_PLANE_HOST }}
+          LANGSMITH_REGION: ${{ vars.LANGSMITH_REGION || 'us' }}
+        run: |
+          uv run python .github/scripts/report_deployment.py \
+            --target "$DEPLOYMENT_TARGET" \
+            --deployment-name text2sql-agent-prod \
+            --deployment-type production
 
-  # Job 3: Deploy to production (only if PR was merged)
-  deploy-production:
-    needs: [cleanup-preview, build-and-push]
-    if: github.event.pull_request.merged == true
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ env.PYTHON_VERSION }}
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v1
-      with:
-        version: "latest"
-
-    - name: Cache uv dependencies
-      uses: actions/cache@v3
-      with:
-        path: |
-          .uv/cache
-          .venv
-        key: ${{ runner.os }}-uv-prod-${{ hashFiles('**/pyproject.toml') }}
-        restore-keys: |
-          ${{ runner.os }}-uv-prod-
-
-    - name: Install dependencies
-      run: uv sync
-
-    - name: Install requests
-      run: pip install requests
-
-    - name: Deploy to production
-      run: |
-        python .github/scripts/langgraph_api.py \
-          --action deploy-production \
-          --image-uri ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-          --api-key ${{ secrets.LANGSMITH_API_KEY }} \
-          --openai-api-key ${{ secrets.OPENAI_API_KEY }}
-
-    # Generate deployment status report
-    - name: Generate deployment status report
-      run: |
-        python .github/scripts/report_deployment.py \
-          --deployment-name text2sql-agent-prod \
-          --image-uri ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-          --deployment-type production
-
-    # Comment PR with deployment status
-    - name: Comment PR with production deployment status
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const fs = require('fs');
-
-          try {
-            const comment = fs.readFileSync('deployment_comment.md', 'utf8');
-
+      - name: Comment on the PR with the deployment status
+        if: always()
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const fs = require('fs');
+            let body;
+            try {
+              body = fs.readFileSync('deployment_comment.md', 'utf8');
+            } catch (error) {
+              body = `## 🚀 Production deployment\n\nThe deployment report could not be generated: ${error.message}`;
+            }
             await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: comment
+              body,
             });
-          } catch (error) {
-            console.log('Failed to read deployment comment file:', error.message);
-            // Fallback comment
-            await github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: `🚀 **Production Deployment Status**\n\n✅ Production deployment completed!\n🔗 Production URL: https://text2sql-agent-prod.langchain.dev\n📦 Docker image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest`
-            });
-          }
-
-    - name: Production deployment success
-      run: |
-        echo "✅ Production deployment completed!"
-        echo "🔗 Production URL: https://text2sql-agent-prod.langchain.dev"
-        echo "📦 Docker image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
