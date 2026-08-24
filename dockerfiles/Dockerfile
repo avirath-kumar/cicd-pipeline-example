@@ -1,4 +1,12 @@
-FROM langchain/langgraph-api:3.11-wolfi
+# Pinned deliberately. `langchain/langgraph-api:3.11-wolfi` is a floating tag, so
+# rebuilding the same commit months apart produces a different Agent Server and
+# a different dependency set (the base image's /api/constraints.txt bounds what
+# this project can install).
+#
+# Self-hosted: this must be compatible with your LangSmith platform version. An
+# Agent Server much newer than the platform can fail to start. Match it to your
+# platform, and regenerate with `langgraph dockerfile` after changing it.
+FROM langchain/langgraph-api:0.13.0-py3.11-wolfi
 
 # -- Adding local package . --
 ADD . /deps/text2sql-agent
