@@ -1,0 +1,26 @@
+tests/unit/test_utils.py
+  s_d030811ff9a859::t_9adb726924c68d 111-154
+agents/simple_text2sql.py
+  s_d030811ff9a859::t_ac758f40e7a10c 17-20
+  s_d030811ff9a859::t_747dec37a599f1 1-2,21,70,82,89-90
+  s_d030811ff9a859::t_e62e95f299814f 22-69,71-81,83-88,91-97
+  s_d030811ff9a859::t_82380199353d50 170
+.env.example
+  s_d030811ff9a859::t_9adb726924c68d 2-9,11-20,22-25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.24",
+  "base_commit_sha": "95b3e9372ee2beacb9362f4003352678eb8bc644",
+  "prompts": {},
+  "sessions": {
+    "s_d030811ff9a859": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "71f06db4-eaab-48d4-b92d-693f9c588a48",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eric Johanson <eric.johanson@langchain.dev>"
+    }
+  }
+}
