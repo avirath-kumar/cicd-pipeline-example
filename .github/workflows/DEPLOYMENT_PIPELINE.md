@@ -89,6 +89,51 @@ from it. For a private registry that usually means an `imagePullSecret` in the
 deployment namespace, referenced via `LANGSMITH_LISTENER_ID` or the deployment's
 `image_pull_secrets` resource spec.
 
+## Sizing self-hosted previews
+
+Every deployment provisions **four** workloads, each with its own CPU and memory
+request: the agent, the queue, a Postgres StatefulSet and a Redis. Two defaults
+catch people out:
+
+* `queue_cpu` defaults to `cpu`, so `--cpu 1` reserves **two** cores, not one.
+* `db_*` and `redis_*` are untouched by `--cpu`/`--memory-mb`. Lowering the agent
+  and queue does nothing for the Postgres StatefulSet, which is often the pod
+  that cannot be scheduled.
+
+Size all four when a cluster is tight:
+
+```bash
+python .github/scripts/langgraph_api.py \
+  --target self-hosted --action deploy-preview --pr-number 42 \
+  --image-uri "$IMAGE" \
+  --cpu 0.25 --memory-mb 768 --queue-cpu 0.2 --queue-memory-mb 512 \
+  --resource-spec '{"db_cpu": 0.1, "db_memory_mb": 512, "redis_cpu": 0.1, "redis_memory_mb": 512}'
+```
+
+The control plane enforces minimums (for example `redis_memory_mb` must be at
+least 512) and returns a `400` naming the offending field.
+
+### A Postgres per pull request does not scale
+
+The bigger problem is architectural: with a preview per pull request, every open
+pull request costs its own Postgres **and** Redis. A handful of concurrent
+previews will exhaust a small cluster, and the symptom is a revision that sits
+in `DEPLOYING` until the platform's readiness timeout and then reports
+`DEPLOY_FAILED` with no reason attached.
+
+Point previews at shared datastores instead, by adding these as deployment
+secrets or environment variables:
+
+```bash
+POSTGRES_URI_CUSTOM="postgresql://user:pass@shared-postgres:5432/preview_<pr>"
+REDIS_URI_CUSTOM="redis://shared-redis:6379/<n>"
+```
+
+See the [self-hosted environment variables](https://docs.langchain.com/langsmith/env-var-self-hosted)
+reference. If a *known-good* image also fails to deploy as a new deployment
+while existing deployments stay healthy, the cluster is out of capacity rather
+than anything being wrong with your image — that is the check to run first.
+
 ## Naming
 
 - Preview deployments: `text2sql-agent-pr-<pr-number>` (deployment type `dev`)
@@ -137,6 +182,7 @@ for the full table of repository variables and secrets.
 | `Refusing to send an API key over plain http` | Use https, or pass `--allow-insecure-host` for an internal instance |
 | `LANGSMITH_GITHUB_INTEGRATION_ID is required` | Fetch it from `GET /v1/integrations/github/install` |
 | Preview never deploys | The pull request is from a fork — previews are skipped by design |
+| `DEPLOY_FAILED` with no reason, after ~600s in `DEPLOYING` | The pods never became ready. Usually cluster capacity — see *Sizing self-hosted previews*. Confirm by deploying a known-good image as a new deployment: if that fails too, it is the cluster, not your image |
 | `409 ... a project in LangSmith named X already exists` | See *Reopened pull requests* below |
 
 ### Reopened pull requests
