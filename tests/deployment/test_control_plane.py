@@ -682,3 +682,25 @@ def test_name_falls_back_to_the_convention():
     assert langgraph_api.resolve_name(pr) == "text2sql-pr-7"
     prod = langgraph_api.parse_args(["--action", "status"])
     assert langgraph_api.resolve_name(prod) == "text2sql-prod"
+
+
+@pytest.mark.deployment
+def test_self_hosted_serving_url_comes_from_custom_url():
+    """Self-hosted leaves `url` null and serves under source_config.custom_url.
+
+    Reading only `url` reported "not provisioned yet" in the PR comment for a
+    deployment that was serving fine.
+    """
+    cloud = {"url": "https://x.us.langgraph.app", "source_config": {}}
+    assert control_plane.deployment_url(cloud) == "https://x.us.langgraph.app"
+
+    self_hosted = {
+        "url": None,
+        "source_config": {"custom_url": "https://ls.internal/lgp/t2sql-demo-abc"},
+    }
+    assert (
+        control_plane.deployment_url(self_hosted)
+        == "https://ls.internal/lgp/t2sql-demo-abc"
+    )
+
+    assert control_plane.deployment_url({"url": None, "source_config": {}}) is None

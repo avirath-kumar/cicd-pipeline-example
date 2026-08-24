@@ -528,9 +528,22 @@ def write_github_output(**values: str) -> None:
                 handle.write(f"{key}={value}\n")
 
 
+def deployment_url(deployment: Dict[str, Any]) -> Optional[str]:
+    """Return a deployment's serving URL.
+
+    Cloud populates the top-level ``url``. Self-hosted leaves it null and puts
+    the path-prefixed URL in ``source_config.custom_url`` instead, so reading
+    only ``url`` reports "not provisioned yet" for a deployment that is serving
+    perfectly well.
+    """
+    return deployment.get("url") or (deployment.get("source_config") or {}).get(
+        "custom_url"
+    )
+
+
 def print_deployment(deployment: Dict[str, Any], *, prefix: str = "") -> None:
     """Print the non-sensitive parts of a deployment resource."""
-    url = deployment.get("url") or "(not provisioned yet)"
+    url = deployment_url(deployment) or "(not provisioned yet)"
     print(f"{prefix}📦 Deployment ID: {deployment.get('id')}")
     print(f"{prefix}🔗 URL: {url}")
     print(f"{prefix}📊 Status: {deployment.get('status', 'UNKNOWN')}")

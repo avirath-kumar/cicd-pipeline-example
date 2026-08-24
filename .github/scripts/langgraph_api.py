@@ -42,6 +42,9 @@ from control_plane import (
     build_saas_payload,
     build_self_hosted_payload,
     collect_secrets,
+)
+from control_plane import deployment_url as cp_deployment_url
+from control_plane import (
     die,
     enable_line_buffering,
     print_deployment,
@@ -191,7 +194,7 @@ def deploy(
 
     write_github_output(
         deployment_id=str(deployment.get("id", "")),
-        deployment_url=str(deployment.get("url") or ""),
+        deployment_url=str(cp_deployment_url(deployment) or ""),
         deployment_name=name,
     )
     return deployment
