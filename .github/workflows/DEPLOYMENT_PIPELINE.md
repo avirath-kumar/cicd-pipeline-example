@@ -157,24 +157,25 @@ The revision is then never marked ready and fails on the platform's timeout
 after ten minutes with **no reason attached**. A deployment that works is
 reported as failed.
 
-With the default `text2sql-agent` prefix, previews are `text2sql-agent-pr-<n>`:
+The default prefix is `text2sql`, which leaves room for a six-digit pull request
+number (`text2sql-pr-999999` derives a 60-character HPA). It was originally
+`text2sql-agent`, which fits only up to PR #999:
 
-| PR number | Name length | Derived HPA | Result |
+| Prefix | PR #999 | PR #1000 | PR #999999 |
 |---|---|---|---|
-| 1–999 | up to 21 | up to 63 | works |
-| **1000 and above** | **22+** | **64+** | **breaks** |
+| `text2sql-agent` | 63 — works | **64 — breaks** | **66 — breaks** |
+| `text2sql` (default) | 57 | 58 | 60 |
 
-So this breaks silently the first time the repository reaches PR #1000. Shorten
-the prefix with `--name-prefix` (or the `DEPLOYMENT_NAME_PREFIX` variable) well
-before then — `t2sql` leaves room for a seven-digit PR number.
+Override it with the `DEPLOYMENT_NAME_PREFIX` repository variable or
+`--name-prefix`, keeping the full name at 21 characters or fewer.
 
 `langgraph_api.py` validates this before deploying and fails immediately with an
 explanation rather than letting it time out.
 
 ## Naming
 
-- Preview deployments: `text2sql-agent-pr-<pr-number>` (deployment type `dev`)
-- Production deployment: `text2sql-agent-prod` (deployment type `prod`)
+- Preview deployments: `<prefix>-pr-<pr-number>` (deployment type `dev`), default `text2sql-pr-<n>`
+- Production deployment: `<prefix>-prod` (deployment type `prod`), default `text2sql-prod`
 - Preview images (self-hosted): `<registry>/<image>:preview-<pr-number>`
 - Production images (self-hosted): `<registry>/<image>:latest`
 
@@ -232,7 +233,7 @@ name, but **deleting the deployment does not delete that project**. So after
 If the same pull request is later reopened, the preview deploy fails with:
 
 ```
-409: There already exists a project in LangSmith named: text2sql-agent-pr-<n>
+409: There already exists a project in LangSmith named: text2sql-pr-<n>
 ```
 
 The pipeline reports this as a `NameConflictError` explaining the fix rather

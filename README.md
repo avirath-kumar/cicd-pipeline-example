@@ -114,6 +114,7 @@ no access to these secrets, by design.
 | Variable | Purpose | Default |
 |---|---|---|
 | `LANGSMITH_DEPLOYMENT_TARGET` | `saas` or `self-hosted` | `saas` |
+| `DEPLOYMENT_NAME_PREFIX` | Prefix for deployment names. Self-hosted caps the full name at 21 chars | `text2sql` |
 | `LANGSMITH_REGION` | Cloud region: `us`, `eu`, `apac`, `aws-us` | `us` |
 | `REGISTRY` | Container registry (self-hosted only) | `docker.io` |
 | `IMAGE_NAME` | Image repository (self-hosted only) | `github.repository` |

@@ -250,8 +250,9 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--name-prefix",
-        default=os.environ.get("DEPLOYMENT_NAME_PREFIX", "text2sql-agent"),
-        help="Prefix for deployment names (default: %(default)s).",
+        default=os.environ.get("DEPLOYMENT_NAME_PREFIX", "text2sql"),
+        help="Prefix for deployment names (default: %(default)s). Keep it short: "
+        "self-hosted caps the whole name at 21 characters, see --help notes.",
     )
     parser.add_argument("--pr-number", type=int, help="PR number, for preview actions.")
 

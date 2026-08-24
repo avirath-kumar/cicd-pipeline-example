@@ -13,6 +13,9 @@ env:
   # `self-hosted`. SaaS builds from this repository; self-hosted deploys a
   # Docker image that this workflow builds and pushes.
   DEPLOYMENT_TARGET: ${{ vars.LANGSMITH_DEPLOYMENT_TARGET || 'saas' }}
+  # Keep this short: self-hosted caps deployment names at 21 characters,
+  # because KEDA derives an HPA name from it that must fit in 63.
+  DEPLOYMENT_NAME_PREFIX: ${{ vars.DEPLOYMENT_NAME_PREFIX || 'text2sql' }}
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
   IMAGE_NAME: ${{ vars.IMAGE_NAME || github.repository }}
   PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -168,7 +171,7 @@ jobs:
         run: |
           uv run python .github/scripts/report_deployment.py \
             --target "$DEPLOYMENT_TARGET" \
-            --deployment-name text2sql-agent-prod \
+            --deployment-name "$DEPLOYMENT_NAME_PREFIX-prod" \
             --deployment-type production
 
       - name: Comment on the PR with the deployment status

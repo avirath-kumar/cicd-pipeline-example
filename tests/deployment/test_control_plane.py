@@ -604,3 +604,13 @@ def test_over_long_existing_deployment_can_still_be_deleted():
         client, langgraph_api.preview_name("text2sql-agent", 9004)
     )
     assert responses.calls[-1].request.method == "DELETE"
+
+
+@pytest.mark.deployment
+def test_default_prefix_survives_large_pr_numbers():
+    """The default prefix must not break as a repository accumulates PRs."""
+    args = langgraph_api.parse_args(["--action", "status"])
+    for pr in (1, 999, 1000, 999999):
+        name = langgraph_api.preview_name(args.name_prefix, pr, "self-hosted")
+        assert len(name) <= control_plane.MAX_SELF_HOSTED_NAME_LEN, name
+    assert langgraph_api.production_name(args.name_prefix, "self-hosted")
