@@ -57,6 +57,38 @@ Both jobs additionally skip pull requests raised from forks.
 | `build-production-image` | merged **and** self-hosted | builds and pushes `:latest` and `main-<sha>` |
 | `deploy-production` | merged | creates or revises the production deployment |
 
+## Using a different container registry
+
+Only the self-hosted path builds images. It defaults to Docker Hub and is
+registry-agnostic: set the `REGISTRY` and `IMAGE_NAME` repository variables and
+the workflows follow.
+
+| Registry | `REGISTRY` | Login |
+|---|---|---|
+| Docker Hub (default) | `docker.io` | `DOCKER_USERNAME` + a [Docker Hub access token](https://docs.docker.com/security/for-developers/access-tokens/) as `DOCKER_PASSWORD` |
+| GitHub Container Registry | `ghcr.io` | `DOCKER_USERNAME` = `${{ github.actor }}`, `DOCKER_PASSWORD` = `${{ secrets.GITHUB_TOKEN }}` (add `packages: write`) |
+| Amazon ECR | `<account>.dkr.ecr.<region>.amazonaws.com` | see below |
+| Google Artifact Registry | `<region>-docker.pkg.dev` | `DOCKER_USERNAME` = `_json_key`, `DOCKER_PASSWORD` = the service account JSON |
+| Azure ACR | `<name>.azurecr.io` | service principal ID and password |
+
+ECR does not accept a static username and password, so replace the login step in
+`preview-deployment.yml` and `new-lgp-revision.yml` with the official action:
+
+```yaml
+- name: Configure AWS credentials
+  uses: aws-actions/configure-aws-credentials@v5
+  with:
+    role-to-assume: arn:aws:iam::<account>:role/<github-oidc-role>
+    aws-region: <region>
+- name: Log in to Amazon ECR
+  uses: aws-actions/amazon-ecr-login@v2
+```
+
+Whichever you pick, the cluster running your Agent Servers must be able to pull
+from it. For a private registry that usually means an `imagePullSecret` in the
+deployment namespace, referenced via `LANGSMITH_LISTENER_ID` or the deployment's
+`image_pull_secrets` resource spec.
+
 ## Naming
 
 - Preview deployments: `text2sql-agent-pr-<pr-number>` (deployment type `dev`)
