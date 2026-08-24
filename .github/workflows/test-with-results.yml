@@ -303,5 +303,12 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
+    # A reusable workflow cannot request more than the job calling it holds.
+    # preview-deployment.yml needs pull-requests: write to post its status
+    # comment, so the caller has to grant it here -- the workflow-level default
+    # of contents: read alone makes GitHub reject the run at startup.
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ./.github/workflows/preview-deployment.yml
     secrets: inherit
