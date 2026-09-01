@@ -30,7 +30,8 @@ env:
   DEPLOYMENT_TARGET: ${{ vars.LANGSMITH_DEPLOYMENT_TARGET || 'saas' }}
   # Keep this short: self-hosted caps deployment names at 21 characters,
   # because KEDA derives an HPA name from it that must fit in 63.
-  DEPLOYMENT_NAME_PREFIX: ${{ vars.DEPLOYMENT_NAME_PREFIX || 'text2sql' }}
+  # An explicit prefix wins; otherwise it derives from DEMO_OWNER.
+  DEPLOYMENT_NAME_PREFIX: ${{ vars.DEPLOYMENT_NAME_PREFIX || (vars.DEMO_OWNER && format('text2sql-{0}', vars.DEMO_OWNER)) || 'text2sql' }}
   REGISTRY: ${{ vars.REGISTRY || 'docker.io' }}
   IMAGE_NAME: ${{ vars.IMAGE_NAME || github.repository }}
   PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
@@ -116,7 +117,9 @@ jobs:
           LANGSMITH_LISTENER_ID: ${{ secrets.LANGSMITH_LISTENER_ID }}
           CONTROL_PLANE_HOST: ${{ secrets.CONTROL_PLANE_HOST }}
           LANGSMITH_REGION: ${{ vars.LANGSMITH_REGION || 'us' }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LLM_GATEWAY_BASE_URL: ${{ vars.LLM_GATEWAY_BASE_URL || 'https://gateway.smith.langchain.com/v1' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'anthropic/claude-haiku-4-5-20251001' }}
           # A branch name is attacker-controlled on a pull request, so it is
           # passed as an environment variable rather than interpolated into
           # the script body.
@@ -130,6 +133,8 @@ jobs:
             --repo-url "$REPO_URL" \
             --repo-ref "$REPO_REF" \
             --image-uri "$REGISTRY/$IMAGE_NAME:preview-$PR_NUMBER" \
+            --secret-env LLM_GATEWAY_BASE_URL \
+            --secret-env LLM_MODEL \
             --wait
 
       - name: Generate deployment status report

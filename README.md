@@ -36,7 +36,17 @@ cp .env.example .env
 
 Edit the `.env` file and add your required environment variables.
 
-### 3. Run LangGraph Studio
+### 3. Create the evaluation dataset
+
+The offline evaluations run against a LangSmith dataset. Create it once:
+
+```bash
+uv run python helpers/create_datasets.py
+```
+
+Set `DEMO_OWNER` first if you share a workspace — see [Naming](#-naming).
+
+### 4. Run LangGraph Studio
 
 Start the LangGraph development server to visualize your agent:
 
@@ -83,6 +93,26 @@ curl https://gateway.smith.langchain.com/v1/models \
 > ```bash
 > --secret-env LLM_GATEWAY_BASE_URL --secret-env LLM_MODEL
 > ```
+>
+> Both deployment workflows already pass these.
+
+CI routes every job through the gateway, so no provider key is needed anywhere
+in the pipeline. The e2e test pins `openai/gpt-4o` to keep its assertions on the
+model they were written against.
+
+## 📛 Naming
+
+LangSmith object names are global to a workspace, so parallel runs of this demo
+collide — on the dataset, on experiment names, and on deployment names (the
+control plane returns a `409`). Set `DEMO_OWNER` to namespace all three:
+
+| `DEMO_OWNER` | Dataset | Experiments | Deployments |
+|---|---|---|---|
+| unset | `text2sql-agent` | `text2sql-agent-sql` | `text2sql-pr-42`, `text2sql-prod` |
+| `avi` | `text2sql-agent-avi` | `text2sql-agent-sql-avi` | `text2sql-avi-pr-42`, `text2sql-avi-prod` |
+
+Lowercase letters, digits and dashes. `DEPLOYMENT_NAME_PREFIX` overrides the
+deployment half. Resolved in `agents/config.py` and in the deployment workflows.
 
 ## 📁 Project Structure
 
@@ -130,7 +160,8 @@ Run specific test categories:
   uv run pytest -m integration
   ```
 
-- **Offline evaluations** (agent performance evaluation):
+- **Offline evaluations** (agent performance evaluation; needs the dataset from
+  [step 3](#3-create-the-evaluation-dataset)):
   ```bash
   uv run pytest -m evaluator
   ```
@@ -152,24 +183,62 @@ no access to these secrets, by design.
 | Variable | Purpose | Default |
 |---|---|---|
 | `LANGSMITH_DEPLOYMENT_TARGET` | `saas` or `self-hosted` | `saas` |
-| `DEPLOYMENT_NAME_PREFIX` | Prefix for deployment names. Self-hosted caps the full name at 21 chars | `text2sql` |
+| `DEMO_OWNER` | Namespaces the dataset, experiments and deployments — see [Naming](#-naming) | unset |
+| `DEPLOYMENT_NAME_PREFIX` | Prefix for deployment names. Self-hosted caps the full name at 21 chars | from `DEMO_OWNER` |
 | `LANGSMITH_REGION` | Cloud region: `us`, `eu`, `apac`, `aws-us` | `us` |
 | `REGISTRY` | Container registry (self-hosted only) | `docker.io` |
 | `IMAGE_NAME` | Image repository (self-hosted only) | `github.repository` |
 | `LANGSMITH_TRACING` | Enable tracing in test jobs | `false` |
 | `LANGSMITH_ENDPOINT` | LangSmith **tracing** API URL | LangSmith default |
+| `LLM_GATEWAY_BASE_URL` | Gateway URL used by every job | LangSmith Cloud gateway |
+| `LLM_MODEL` | Provider-qualified model ID | `anthropic/claude-haiku-4-5-20251001` |
 
 **Repository secrets:**
 
 | Secret | Needed for | Purpose |
 |---|---|---|
-| `OPENAI_API_KEY` | both | Model calls in tests and in the deployment |
-| `LANGSMITH_API_KEY` | both | Tracing, evaluations, and control plane auth |
+| `LANGSMITH_API_KEY` | both | Tracing, evaluations, control plane auth, and gateway auth |
 | `LANGSMITH_WORKSPACE_ID` | both | Workspace to deploy into (`X-Tenant-Id`) |
-| `LANGSMITH_GITHUB_INTEGRATION_ID` | SaaS | GitHub App install that grants repo access |
+| `LANGSMITH_GITHUB_INTEGRATION_ID` | SaaS | GitHub App install that grants repo access — see [GitHub App](#github-app-saas-only) |
 | `CONTROL_PLANE_HOST` | self-hosted | `https://<your-langsmith-host>/api-host` |
 | `LANGSMITH_LISTENER_ID` | self-hosted (optional) | Pin deployments to a listener |
 | `DOCKER_USERNAME` / `DOCKER_PASSWORD` | self-hosted | Push the agent image |
+
+### GitHub App (SaaS only)
+
+Cloud deployments are built by the control plane from your repository, so
+LangChain's `hosted-langserve` GitHub App needs access to it. **A GitHub org
+owner or admin must authorize it once per workspace** — GitHub returns `404`,
+not `403`, on installation settings you cannot administer, so a permissions
+problem looks like a missing page.
+
+1. Install it from [github.com/apps/hosted-langserve](https://github.com/apps/hosted-langserve),
+   granting access to this repository.
+
+2. Read the integration ID from the **control plane** host — not the tracing API:
+
+   ```bash
+   curl -sS https://api.host.langchain.com/v1/integrations/github/install \
+     -H "X-Api-Key: $LANGSMITH_API_KEY" | jq -r '.[] | "\(.name)\t\(.id)"'
+   ```
+
+   One row per account, as a bare array. Use `id` as
+   `LANGSMITH_GITHUB_INTEGRATION_ID` — a workspace-scoped key needs no
+   `X-Tenant-Id`.
+
+3. Confirm the install actually reaches this repo:
+
+   ```bash
+   curl -sS https://api.host.langchain.com/v1/integrations/github/<id>/repos \
+     -H "X-Api-Key: $LANGSMITH_API_KEY" | jq -r '.[].url'
+   ```
+
+> Step 3 matters: a *selected repositories* install returns a perfectly valid
+> integration ID, but the deploy fails because the control plane cannot read the
+> repo. Add it under **Repository access** at
+> `github.com/settings/installations/<installation_id>` for a personal account,
+> or `github.com/organizations/<org>/settings/installations/<installation_id>`
+> for an org.
 
 ## 🧭 Choosing a hosting model
 
@@ -182,7 +251,7 @@ important thing to get right — the wrong source is rejected by the API:
 | Control plane host | `https://api.host.langchain.com` | `https://<your-langsmith-host>/api-host` |
 | Deployment source | `github` — the control plane builds for you | `external_docker` — you build and push the image |
 | Docker image needed? | No | Yes |
-| Extra config | GitHub integration ID | Control plane host, optional listener ID |
+| Extra config | [GitHub integration ID](#github-app-saas-only) | Control plane host, optional listener ID |
 
 Cloud regional hosts: `https://eu.api.host.langchain.com`,
 `https://apac.api.host.langchain.com`, `https://aws.api.host.langchain.com`.

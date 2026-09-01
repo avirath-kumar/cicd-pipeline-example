@@ -5,7 +5,8 @@ from langchain_core.messages import HumanMessage
 from langsmith import Client
 from openevals.llm import create_llm_as_judge
 
-from agents.simple_text2sql import agent
+from agents.config import DATASET_NAME, EXPERIMENT_PREFIX_E2E
+from agents.simple_text2sql import agent, build_llm
 
 # Setup LangSmith client
 client = Client()
@@ -50,13 +51,13 @@ Rating:
 correctness_evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
     feedback_key="correctness",
-    model="openai:gpt-4o-mini",
+    judge=build_llm(),
 )
 
 response_quality_evaluator = create_llm_as_judge(
     prompt=RESPONSE_QUALITY_PROMPT,
     feedback_key="response_quality",
-    model="openai:gpt-4o-mini",
+    judge=build_llm(),
 )
 
 
@@ -80,7 +81,7 @@ def test_e2e_evaluation():
     """Run end-to-end evaluation using LangSmith"""
 
     # Create dataset if it doesn't exist
-    dataset_name = "text2sql-agent"
+    dataset_name = DATASET_NAME
 
     # Run evaluation
     experiment_results = client.evaluate(
@@ -91,7 +92,7 @@ def test_e2e_evaluation():
             response_quality_evaluator,
         ],  # The evaluators to score the results
         max_concurrency=10,
-        experiment_prefix="text2sql-agent-e2e",  # A prefix for your experiment names
+        experiment_prefix=EXPERIMENT_PREFIX_E2E,  # A prefix for your experiment names
     )
 
     assert experiment_results is not None

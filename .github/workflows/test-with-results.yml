@@ -12,6 +12,12 @@ permissions:
 
 env:
   PYTHON_VERSION: '3.11'
+  # Route every job through the LangSmith LLM Gateway.
+  LLM_PROVIDER: gateway
+  LLM_GATEWAY_BASE_URL: ${{ vars.LLM_GATEWAY_BASE_URL || 'https://gateway.smith.langchain.com/v1' }}
+  LLM_MODEL: ${{ vars.LLM_MODEL || 'anthropic/claude-haiku-4-5-20251001' }}
+  # Namespaces the dataset and experiment names. See agents/config.py.
+  DEMO_OWNER: ${{ vars.DEMO_OWNER }}
 
 jobs:
   quality-checks:
@@ -138,6 +144,7 @@ jobs:
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
       LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING || 'false' }}
       LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
+      LLM_MODEL: openai/gpt-4o
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

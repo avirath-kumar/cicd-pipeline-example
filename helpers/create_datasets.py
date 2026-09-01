@@ -1,6 +1,8 @@
 from dotenv import load_dotenv
 from langsmith import Client
 
+from agents.config import DATASET_NAME
+
 # Not override=True: real environment variables must win over a local .env.
 load_dotenv()
 
@@ -55,7 +57,7 @@ examples = [
     },
 ]
 
-dataset_name = "text2sql-agent"
+dataset_name = DATASET_NAME
 
 if not client.has_dataset(dataset_name=dataset_name):
     dataset = client.create_dataset(dataset_name=dataset_name)

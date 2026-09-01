@@ -15,6 +15,9 @@ credentials.json
 deployment_comment.md
 eval_comment.md
 
+# Local notes
+DOCS-FEEDBACK.md
+
 # Virtual environments
 venv/
 .venv/

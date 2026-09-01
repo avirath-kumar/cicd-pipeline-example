@@ -1,15 +1,14 @@
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
-from langchain_openai import ChatOpenAI
 
-from agents.simple_text2sql import create_agent
+from agents.simple_text2sql import build_llm, create_agent
 from agents.utils import SQLDatabase, get_engine_for_chinook_db
 
 
 @pytest.mark.e2e
 def test_real_graph_run_with_openai():
     # Instantiate real dependencies
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    llm = build_llm()
     engine = get_engine_for_chinook_db()
     db = SQLDatabase(engine)
 

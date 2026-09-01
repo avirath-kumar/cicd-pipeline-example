@@ -4,7 +4,8 @@ import pytest
 from langsmith import Client
 from openevals.llm import create_llm_as_judge
 
-from agents.simple_text2sql import generate_sql, llm
+from agents.config import DATASET_NAME, EXPERIMENT_PREFIX_SQL
+from agents.simple_text2sql import build_llm, generate_sql, llm
 from agents.utils import get_detailed_table_info
 
 # Setup LangSmith client
@@ -47,13 +48,13 @@ Rating:
 sql_correctness_evaluator = create_llm_as_judge(
     prompt=SQL_CORRECTNESS_PROMPT,
     feedback_key="sql_correctness",
-    model="openai:gpt-4o-mini",
+    judge=build_llm(),
 )
 
 sql_quality_evaluator = create_llm_as_judge(
     prompt=SQL_QUALITY_PROMPT,
     feedback_key="sql_quality",
-    model="openai:gpt-4o-mini",
+    judge=build_llm(),
 )
 
 
@@ -82,13 +83,13 @@ def test_sql_generation_evaluation():
     # Run evaluation
     experiment_results = client.evaluate(
         ls_sql_target,  # Your SQL generation system
-        data="text2sql-agent",  # The dataset to predict and grade over
+        data=DATASET_NAME,  # The dataset to predict and grade over
         evaluators=[
             sql_correctness_evaluator,
             sql_quality_evaluator,
         ],  # The evaluators to score the results
         max_concurrency=10,
-        experiment_prefix="text2sql-agent-sql",  # A prefix for your experiment names
+        experiment_prefix=EXPERIMENT_PREFIX_SQL,  # A prefix for your experiment names
     )
 
     assert experiment_results is not None
