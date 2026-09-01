@@ -27,12 +27,13 @@ def _resolve_owner() -> str:
     return slug
 
 
-OWNER = _resolve_owner()
-
-
 def owned(base: str) -> str:
-    """Suffix ``base`` with the owner slug, or return it unchanged."""
-    return f"{base}-{OWNER}" if OWNER else base
+    """Suffix ``base`` with the owner slug, or return it unchanged.
+
+    Reads the environment per call so lazy callers see the current value.
+    """
+    slug = _resolve_owner()
+    return f"{base}-{slug}" if slug else base
 
 
 DATASET_NAME = owned(DATASET_BASE)

@@ -55,6 +55,8 @@ from control_plane import (
     write_github_output,
 )
 
+from agents.config import owned
+
 DEFAULT_SECRET_ENV_VARS = ["OPENAI_API_KEY"]
 
 
@@ -269,6 +271,11 @@ def show_status(client: ControlPlaneClient, name: str) -> None:
             print(f"   {latest['status_message']}")
 
 
+def default_name_prefix() -> str:
+    """Explicit prefix wins; otherwise derive it from DEMO_OWNER."""
+    return os.environ.get("DEPLOYMENT_NAME_PREFIX") or owned("text2sql")
+
+
 def parse_args(argv: List[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__,
@@ -294,7 +301,7 @@ def parse_args(argv: List[str]) -> argparse.Namespace:
     )
     parser.add_argument(
         "--name-prefix",
-        default=os.environ.get("DEPLOYMENT_NAME_PREFIX", "text2sql"),
+        default=default_name_prefix(),
         help="Prefix for deployment names (default: %(default)s). Keep it short: "
         "self-hosted caps the whole name at 21 characters, see --help notes.",
     )

@@ -607,8 +607,15 @@ def test_over_long_existing_deployment_can_still_be_deleted():
 
 
 @pytest.mark.deployment
-def test_default_prefix_survives_large_pr_numbers():
-    """The default prefix must not break as a repository accumulates PRs."""
+def test_default_prefix_survives_large_pr_numbers(monkeypatch):
+    """The shipped default must not break as a repository accumulates PRs.
+
+    A DEMO_OWNER suffix legitimately eats into the 21-character budget, so
+    isolate it -- validate_new_deployment_name rejects an over-long name at
+    deploy time.
+    """
+    monkeypatch.delenv("DEPLOYMENT_NAME_PREFIX", raising=False)
+    monkeypatch.delenv("DEMO_OWNER", raising=False)
     args = langgraph_api.parse_args(["--action", "status"])
     for pr in (1, 999, 1000, 999999):
         name = langgraph_api.preview_name(args.name_prefix, pr, "self-hosted")
@@ -677,7 +684,10 @@ def test_explicit_name_overrides_the_pr_convention():
 
 
 @pytest.mark.deployment
-def test_name_falls_back_to_the_convention():
+def test_name_falls_back_to_the_convention(monkeypatch):
+    # The default is read from the environment at parse time.
+    monkeypatch.delenv("DEPLOYMENT_NAME_PREFIX", raising=False)
+    monkeypatch.delenv("DEMO_OWNER", raising=False)
     pr = langgraph_api.parse_args(["--action", "status", "--pr-number", "7"])
     assert langgraph_api.resolve_name(pr) == "text2sql-pr-7"
     prod = langgraph_api.parse_args(["--action", "status"])
