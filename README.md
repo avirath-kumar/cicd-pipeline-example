@@ -109,7 +109,7 @@ control plane returns a `409`). Set `DEMO_OWNER` to namespace all three:
 | `DEMO_OWNER` | Dataset | Experiments | Deployments |
 |---|---|---|---|
 | unset | `text2sql-agent` | `text2sql-agent-sql` | `text2sql-pr-42`, `text2sql-prod` |
-| `avi` | `text2sql-agent-avi` | `text2sql-agent-sql-avi` | `text2sql-avi-pr-42`, `text2sql-avi-prod` |
+| `name` | `text2sql-agent-name` | `text2sql-agent-sql-name` | `text2sql-name-pr-42`, `text2sql-name-prod` |
 
 Lowercase letters, digits and dashes. `DEPLOYMENT_NAME_PREFIX` overrides the
 deployment half. Resolved in `agents/config.py` and in the deployment workflows.
