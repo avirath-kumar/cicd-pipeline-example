@@ -1,0 +1,61 @@
+tests/offline_evals/test_e2e_agent.py
+  s_699b97d8964b1e::t_604222e078234d 8,84,95
+  h_7cae82992be157 9,54,60
+.github/workflows/test-with-results.yml
+  s_699b97d8964b1e::t_9eb39c9c70ef05 19
+  h_7cae82992be157 15-18,147
+  s_699b97d8964b1e::t_5b5ebcc9bc9513 20
+.env.example
+  s_699b97d8964b1e::t_396006ac564e7a 28-29,34-35
+  s_699b97d8964b1e::t_4748fc7a4be976 27,30-33,48,60
+  s_699b97d8964b1e::t_82fcbbe97adf66 61
+  s_699b97d8964b1e::t_471e89732300d2 62
+tests/e2e/test_agent_invocation.py
+  h_7cae82992be157 4,11
+.gitignore
+  s_699b97d8964b1e::t_a994013335b4d9 18-20
+.github/workflows/preview-deployment.yml
+  h_7cae82992be157 120-122,136-137
+  s_699b97d8964b1e::t_28669f3c218e04 34
+  s_699b97d8964b1e::t_50db9a49088a79 33
+README.md
+  s_699b97d8964b1e::t_654aa4ce80d70d 39-46,48-49
+  s_699b97d8964b1e::t_2a637dc2c8b6e0 96-102,104-115
+  s_699b97d8964b1e::t_38f1c233dd51e9 47,103,186
+  s_699b97d8964b1e::t_00d462cc6f5a39 207-242
+  s_699b97d8964b1e::t_6f21af32e54536 163-164,187,193-194,200
+  s_699b97d8964b1e::t_c91490af0b4c4a 202,254
+helpers/create_datasets.py
+  s_699b97d8964b1e::t_604222e078234d 4-5,60
+tests/offline_evals/test_sql_generation.py
+  s_699b97d8964b1e::t_604222e078234d 7,86,92
+  h_7cae82992be157 8,51,57
+.github/workflows/new-lgp-revision.yml
+  s_699b97d8964b1e::t_2e7f9d1b49c50b 19
+  s_699b97d8964b1e::t_2f79dac4c6d806 18
+  h_7cae82992be157 157-158,168-169
+agents/config.py
+  s_699b97d8964b1e::t_e0220a78b2fcf0 1-3,13,24-25,34
+  s_699b97d8964b1e::t_c65a2e49f3f885 4-12,14-23,26-33,35-40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "65622064ea3e1a01e9deae3ea5616b914eaa0cd6",
+  "prompts": {},
+  "humans": {
+    "h_7cae82992be157": {
+      "author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_699b97d8964b1e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66d23c29-1b0d-4e6d-9bc8-8f216b4e1225",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  }
+}
