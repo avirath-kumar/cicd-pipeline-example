@@ -95,8 +95,8 @@ def test_sql_generation_evaluation():
     assert experiment_results is not None
     print(f"✅ Evaluation completed: {experiment_results.experiment_name}")
 
-    # Define scoring rules
-    criteria = {"sql_correctness": ">=0.75", "sql_quality": ">=3.0"}
+    # Judges are boolean, so scores are the fraction of examples passing (0-1).
+    criteria = {"sql_correctness": ">=0.75", "sql_quality": ">=0.8"}
 
     output_metadata = {
         "experiment_name": experiment_results.experiment_name,

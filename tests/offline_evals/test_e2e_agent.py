@@ -98,8 +98,8 @@ def test_e2e_evaluation():
     assert experiment_results is not None
     print(f"✅ Evaluation completed: {experiment_results.experiment_name}")
 
-    # Define scoring rules for post-processing
-    criteria = {"correctness": ">=0.8", "response_quality": ">=3.5"}
+    # Judges are boolean, so scores are the fraction of examples passing (0-1).
+    criteria = {"correctness": ">=0.8", "response_quality": ">=0.8"}
 
     output_metadata = {
         "experiment_name": experiment_results.experiment_name,

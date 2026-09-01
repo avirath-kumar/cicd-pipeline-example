@@ -8,15 +8,16 @@ load_dotenv()
 
 client = Client()
 
-# Create a dataset for text2sql agent with Chinook music database
+# Answers are checked against the Chinook snapshot get_engine_for_chinook_db()
+# downloads, whose invoices run 2021-2025 and top out at $49.62 per customer.
 examples = [
     {
         "inputs": {
             "question": "How many songs do you have by Queen?",
         },
         "outputs": {
-            "sql": "SELECT COUNT(*) FROM Track t JOIN Artist a ON t.AlbumId IN (SELECT AlbumId FROM Album WHERE ArtistId = a.ArtistId) WHERE a.Name = 'Queen'",
-            "response": "We have 15 songs by Queen in our database.",
+            "sql": "SELECT COUNT(*) FROM Track t JOIN Album al ON t.AlbumId = al.AlbumId JOIN Artist a ON al.ArtistId = a.ArtistId WHERE a.Name = 'Queen'",
+            "response": "We have 45 songs by Queen in our database.",
         },
     },
     {
@@ -25,7 +26,7 @@ examples = [
         },
         "outputs": {
             "sql": "SELECT Name, UnitPrice FROM Track ORDER BY UnitPrice DESC LIMIT 5",
-            "response": "The top 5 most expensive tracks are: [list of tracks with prices]",
+            "response": "The five most expensive tracks are all priced at $1.99, the highest unit price in the catalogue.",
         },
     },
     {
@@ -39,20 +40,20 @@ examples = [
     },
     {
         "inputs": {
-            "question": "What is the total revenue from sales in 2010?",
+            "question": "What is the total revenue from sales in 2023?",
         },
         "outputs": {
-            "sql": "SELECT SUM(Total) FROM Invoice WHERE strftime('%Y', InvoiceDate) = '2010'",
-            "response": "The total revenue from sales in 2010 was $1,383.51.",
+            "sql": "SELECT SUM(Total) FROM Invoice WHERE strftime('%Y', InvoiceDate) = '2023'",
+            "response": "The total revenue from sales in 2023 was $469.58.",
         },
     },
     {
         "inputs": {
-            "question": "Which customers have spent more than $100?",
+            "question": "Which customers have spent more than $40?",
         },
         "outputs": {
-            "sql": "SELECT c.FirstName, c.LastName, SUM(i.Total) as TotalSpent FROM Customer c JOIN Invoice i ON c.CustomerId = i.CustomerId GROUP BY c.CustomerId HAVING SUM(i.Total) > 100 ORDER BY TotalSpent DESC",
-            "response": "Customers who have spent more than $100 include: [list of customers with their total spending]",
+            "sql": "SELECT c.FirstName, c.LastName, SUM(i.Total) as TotalSpent FROM Customer c JOIN Invoice i ON c.CustomerId = i.CustomerId GROUP BY c.CustomerId HAVING SUM(i.Total) > 40 ORDER BY TotalSpent DESC",
+            "response": "14 customers have spent more than $40, led by Helena Holy at $49.62, Richard Cunningham at $47.62 and Luis Rojas at $46.62.",
         },
     },
 ]
