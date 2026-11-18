@@ -1,0 +1,28 @@
+agents/simple_text2sql.py
+  s_48ed337267a8a4::t_d8ecaaa9e0a0cf 23
+  s_48ed337267a8a4::t_d78ece7758339d 25
+README.md
+  s_48ed337267a8a4::t_d8ecaaa9e0a0cf 66,74-78
+  s_48ed337267a8a4::t_c25d8b96b5b28a 79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "2afbf4406b5432520d6bded8e80816bfc9914f27",
+  "prompts": {},
+  "humans": {
+    "h_7cae82992be157": {
+      "author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_48ed337267a8a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "60b32f7f-033b-4396-bed0-7b277aa3b901",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  }
+}
