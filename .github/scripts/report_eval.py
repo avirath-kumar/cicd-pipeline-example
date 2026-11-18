@@ -101,6 +101,13 @@ def process_config(config_path: str, client: Client) -> Dict[str, Any]:
             display_score = format_score(avg_score)
             table_rows.append((key, display_score, check, passed))
 
+        # A judge that errored leaves no feedback, so its threshold would
+        # otherwise be skipped rather than failed.
+        for key, threshold_expr in criteria.items():
+            if key not in feedback_by_key:
+                table_rows.append((key, format_score(None), threshold_expr, "❌"))
+                num_failed += 1
+
         return {
             "experiment_name": experiment_name,
             "table_rows": table_rows,
@@ -112,6 +119,18 @@ def process_config(config_path: str, client: Client) -> Dict[str, Any]:
     except Exception as e:
         print(f"❌ Error processing experiment {experiment_name}: {e}")
         return {"experiment_name": experiment_name, "error": str(e)}
+
+
+def failed_experiments(results: List[Dict[str, Any]]) -> List[str]:
+    """Names of experiments that errored, have no results, or missed a threshold."""
+    failed = []
+    for result in results:
+        errored = "error" in result
+        empty = not result.get("table_rows")
+        missed_threshold = result.get("num_failed", 0) > 0
+        if errored or empty or missed_threshold:
+            failed.append(result.get("experiment_name", "Unknown"))
+    return failed
 
 
 def write_markdown_report(
@@ -239,6 +258,13 @@ Examples:
     print(
         f"✅ Processed {successful_experiments}/{total_experiments} experiments successfully"
     )
+
+    # Fail only after the report exists, so the PR comment still shows why.
+    failed = failed_experiments(results)
+    if failed:
+        print(f"❌ Evaluation thresholds not met: {', '.join(failed)}")
+        sys.exit(1)
+    print("✅ All evaluation thresholds met.")
 
 
 if __name__ == "__main__":

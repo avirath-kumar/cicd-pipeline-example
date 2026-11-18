@@ -49,9 +49,9 @@ def resolve_llm_route() -> str:
     return "openai"
 
 
-def resolve_temperature_kwargs() -> dict:
-    """``LLM_TEMPERATURE`` overrides the default of 0; ``none`` omits it."""
-    raw = (os.environ.get("LLM_TEMPERATURE") or "0").strip().lower()
+def resolve_temperature_kwargs(temperature: str | None = None) -> dict:
+    """``temperature``, else ``LLM_TEMPERATURE``, else 0; ``none`` omits it."""
+    raw = (temperature or os.environ.get("LLM_TEMPERATURE") or "0").strip().lower()
     # Reasoning models reject the parameter, and a custom/<config> ID hides
     # the model from langchain-openai's own detection.
     if raw == "none":
@@ -59,7 +59,7 @@ def resolve_temperature_kwargs() -> dict:
     return {"temperature": float(raw)}
 
 
-def build_llm():
+def build_llm(model: str | None = None, temperature: str | None = None):
     """Build the chat model, supporting three ways to reach a provider.
 
     ``gateway``
@@ -78,10 +78,11 @@ def build_llm():
         Call OpenAI directly with ``OPENAI_API_KEY`` -- the original behaviour.
 
     Set ``LLM_PROVIDER`` to force a route, or ``LLM_MODEL`` to override the model.
+    ``model`` and ``temperature`` arguments take precedence over the environment.
     """
     route = resolve_llm_route()
-    model = os.environ.get("LLM_MODEL") or DEFAULT_MODELS[route]
-    temperature_kwargs = resolve_temperature_kwargs()
+    model = model or os.environ.get("LLM_MODEL") or DEFAULT_MODELS[route]
+    temperature_kwargs = resolve_temperature_kwargs(temperature)
 
     if route == "gateway":
         # LLM_GATEWAY_API_KEY first: a self-hosted deployment calling Cloud's

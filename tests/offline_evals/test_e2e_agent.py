@@ -1,12 +1,11 @@
-import json
-
 import pytest
 from langchain_core.messages import HumanMessage
 from langsmith import Client
 from openevals.llm import create_llm_as_judge
 
 from agents.config import DATASET_NAME, EXPERIMENT_PREFIX_E2E
-from agents.simple_text2sql import agent, build_llm
+from agents.simple_text2sql import agent
+from tests.offline_evals.eval_config import build_judge_llm, write_eval_config
 
 # Setup LangSmith client
 client = Client()
@@ -51,13 +50,13 @@ Rating:
 correctness_evaluator = create_llm_as_judge(
     prompt=CORRECTNESS_PROMPT,
     feedback_key="correctness",
-    judge=build_llm(),
+    judge=build_judge_llm(),
 )
 
 response_quality_evaluator = create_llm_as_judge(
     prompt=RESPONSE_QUALITY_PROMPT,
     feedback_key="response_quality",
-    judge=build_llm(),
+    judge=build_judge_llm(),
 )
 
 
@@ -99,16 +98,7 @@ def test_e2e_evaluation():
     print(f"✅ Evaluation completed: {experiment_results.experiment_name}")
 
     # Judges are boolean, so scores are the fraction of examples passing (0-1).
-    criteria = {"correctness": ">=0.8", "response_quality": ">=0.8"}
-
-    output_metadata = {
-        "experiment_name": experiment_results.experiment_name,
-        "criteria": criteria,
-    }
-
-    safe_name = experiment_results.experiment_name.replace(":", "-").replace("/", "-")
-    config_filename = f"evaluation_config__{safe_name}.json"
-    with open(config_filename, "w") as f:
-        json.dump(output_metadata, f)
-
-    print(f"::set-output name=config_filename::{config_filename}")
+    # response_quality is report-only: too subjective to gate on 5 examples.
+    criteria = {"correctness": ">=0.8"}
+    config_filename = write_eval_config(experiment_results.experiment_name, criteria)
+    print(f"📝 Thresholds written to {config_filename}")

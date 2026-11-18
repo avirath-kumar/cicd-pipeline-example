@@ -179,6 +179,13 @@ Run specific test categories:
   uv run pytest -m evaluator
   ```
 
+  In CI these gate the preview deployment: the **Evaluation report** job fails
+  when a score misses its threshold (`sql_correctness >= 0.75`,
+  `sql_quality >= 0.8`, `correctness >= 0.8`) or a judge produced no score.
+  `response_quality` is reported but not gated. Every judge is pinned to
+  `custom/gpt-5.6-luna-prod-gateway` (override with `EVAL_JUDGE_MODEL`), so a
+  model-upgrade PR changes the answers being graded, never the grader.
+
 - **Deployment client** (verifies the SaaS and self-hosted request payloads
   against a mocked control plane — no credentials required):
   ```bash
