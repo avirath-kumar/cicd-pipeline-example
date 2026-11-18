@@ -1,0 +1,14 @@
+agents/simple_text2sql.py
+  h_7cae82992be157 25
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "ce065aaca18bef4f9b8336aeaa91ac3487ff3d58",
+  "prompts": {},
+  "humans": {
+    "h_7cae82992be157": {
+      "author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  }
+}
