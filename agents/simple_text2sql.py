@@ -20,8 +20,9 @@ from agents.utils import (
 load_dotenv()
 
 #: Default model per route. Gateway IDs are provider-qualified; direct ones are not.
+#: custom/<name> is a saved gateway model configuration in the workspace.
 DEFAULT_MODELS = {
-    "gateway": "anthropic/claude-haiku-4-5-20251001",
+    "gateway": "custom/claude-haiku-4-5-prod-gateway",
     "anthropic": "claude-haiku-4-5-20251001",
     "openai": "gpt-4o-mini",
 }

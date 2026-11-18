@@ -63,13 +63,19 @@ set `LLM_PROVIDER` to force one and `LLM_MODEL` to override the model.
 
 | Route | Credential | Default model | Use when |
 |---|---|---|---|
-| `gateway` | `LANGSMITH_API_KEY` only | `anthropic/claude-haiku-4-5-20251001` | Your organisation does not issue provider keys |
+| `gateway` | `LANGSMITH_API_KEY` only | `custom/claude-haiku-4-5-prod-gateway` | Your organisation does not issue provider keys |
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` | You have an Anthropic key |
 | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | You have an OpenAI key |
 
 The defaults live in one place, `DEFAULT_MODELS` in `agents/simple_text2sql.py`.
 CI, previews and production all follow it unless `LLM_MODEL` is set, so
 switching models is a one-line change there.
+
+The gateway default is a saved
+[model configuration](https://docs.langchain.com/langsmith/llm-gateway-model-configurations)
+(`custom/<name>`), so it only resolves in a workspace that has one by that
+name. Create it, or point `DEFAULT_MODELS["gateway"]` at a
+provider-qualified ID such as `anthropic/claude-haiku-4-5-20251001`.
 
 ### The LLM Gateway route
 
