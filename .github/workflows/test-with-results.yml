@@ -145,7 +145,9 @@ jobs:
       LANGSMITH_API_KEY: ${{ secrets.LANGSMITH_API_KEY }}
       LANGSMITH_TRACING: ${{ vars.LANGSMITH_TRACING || 'false' }}
       LANGSMITH_ENDPOINT: ${{ vars.LANGSMITH_ENDPOINT }}
-      LLM_MODEL: openai/gpt-4o
+      LLM_MODEL: custom/gpt-5.6-luna-prod-gateway
+      # Reasoning model: rejects temperature.
+      LLM_TEMPERATURE: none
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7

@@ -102,8 +102,10 @@ curl https://gateway.smith.langchain.com/v1/models \
 > when the repository variable is set; otherwise the code default applies.
 
 CI routes every job through the gateway, so no provider key is needed anywhere
-in the pipeline. The e2e test pins `openai/gpt-4o` to keep its assertions on the
-model they were written against.
+in the pipeline. The e2e test pins a saved
+[model configuration](https://docs.langchain.com/langsmith/llm-gateway-model-configurations),
+`custom/gpt-5.6-luna-prod-gateway`, with `LLM_TEMPERATURE=none` because that
+reasoning model rejects `temperature`. `LLM_TEMPERATURE` defaults to `0`.
 
 ## 📛 Naming
 
