@@ -20,8 +20,9 @@ from agents.utils import (
 load_dotenv()
 
 #: Default model per route. Gateway IDs are provider-qualified; direct ones are not.
+#: custom/<name> is a saved gateway model configuration in the workspace.
 DEFAULT_MODELS = {
-    "gateway": "anthropic/claude-haiku-4-5-20251001",
+    "gateway": "custom/claude-haiku-4-5-prod-gateway",
     "anthropic": "claude-haiku-4-5-20251001",
     "openai": "gpt-4o-mini",
 }
@@ -48,6 +49,16 @@ def resolve_llm_route() -> str:
     return "openai"
 
 
+def resolve_temperature_kwargs() -> dict:
+    """``LLM_TEMPERATURE`` overrides the default of 0; ``none`` omits it."""
+    raw = (os.environ.get("LLM_TEMPERATURE") or "0").strip().lower()
+    # Reasoning models reject the parameter, and a custom/<config> ID hides
+    # the model from langchain-openai's own detection.
+    if raw == "none":
+        return {}
+    return {"temperature": float(raw)}
+
+
 def build_llm():
     """Build the chat model, supporting three ways to reach a provider.
 
@@ -70,6 +81,7 @@ def build_llm():
     """
     route = resolve_llm_route()
     model = os.environ.get("LLM_MODEL") or DEFAULT_MODELS[route]
+    temperature_kwargs = resolve_temperature_kwargs()
 
     if route == "gateway":
         # LLM_GATEWAY_API_KEY first: a self-hosted deployment calling Cloud's
@@ -90,16 +102,16 @@ def build_llm():
                 "LLM_GATEWAY_BASE_URL", "https://gateway.smith.langchain.com/v1"
             ),
             api_key=api_key,
-            temperature=0,
+            **temperature_kwargs,
         )
 
     if route == "anthropic":
         # Imported lazily so the OpenAI-only path needs no Anthropic install.
         from langchain_anthropic import ChatAnthropic
 
-        return ChatAnthropic(model=model, temperature=0)
+        return ChatAnthropic(model=model, **temperature_kwargs)
 
-    return ChatOpenAI(model=model, temperature=0)
+    return ChatOpenAI(model=model, **temperature_kwargs)
 
 
 class OverallState(TypedDict):
