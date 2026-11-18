@@ -1,0 +1,34 @@
+README.md
+  s_48ed337267a8a4::t_997456effbb964 101-102
+  s_48ed337267a8a4::t_e841a8f6447b82 199
+  s_48ed337267a8a4::t_90202fcae261cc 70-73
+.github/workflows/preview-deployment.yml
+  s_48ed337267a8a4::t_6ebdeaa498a0d6 122-123,138
+.gitignore
+  s_48ed337267a8a4::t_4b656ed382f68a 63-65
+.github/workflows/test-with-results.yml
+  s_48ed337267a8a4::t_6ebdeaa498a0d6 18-19
+.github/workflows/new-lgp-revision.yml
+  s_48ed337267a8a4::t_6ebdeaa498a0d6 158-159,170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "3847f574f8c68451e34e046316851a9a11c07592",
+  "prompts": {},
+  "humans": {
+    "h_7cae82992be157": {
+      "author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_48ed337267a8a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "60b32f7f-033b-4396-bed0-7b277aa3b901",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  }
+}
