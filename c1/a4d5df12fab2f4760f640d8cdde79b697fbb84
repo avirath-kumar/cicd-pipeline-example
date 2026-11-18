@@ -1,0 +1,48 @@
+.github/scripts/report_eval.py
+  s_48ed337267a8a4::t_a4043963642dc5 124-135
+  s_48ed337267a8a4::t_c48835ba8494b1 262-267
+  s_48ed337267a8a4::t_a90e6d8a7a41f8 104-110
+  s_48ed337267a8a4::t_cb03814e57a8df 268
+README.md
+  s_48ed337267a8a4::t_a36cd0686f8c19 182-188
+tests/deployment/test_report_eval.py
+  s_48ed337267a8a4::t_f62943b1d6b5e0 1-2,4-28,30-52
+  s_48ed337267a8a4::t_d26a17743c9fa0 3,29
+tests/offline_evals/eval_config.py
+  s_48ed337267a8a4::t_250572771dc46e 1,4-14
+  s_48ed337267a8a4::t_465de2bd793d2d 2-3,15-27
+tests/offline_evals/test_e2e_agent.py
+  s_48ed337267a8a4::t_c5355cdb9bdd9b 103-104
+  s_48ed337267a8a4::t_0fa02e0766ef9c 7-8,53,59,101-102
+agents/simple_text2sql.py
+  s_48ed337267a8a4::t_982348c199529c 81,84-85
+  s_48ed337267a8a4::t_cce6d108540a80 52-54
+  s_48ed337267a8a4::t_34920e170e32fa 62
+tests/offline_evals/test_sql_generation.py
+  s_48ed337267a8a4::t_e9ca69a22b416c 8
+  s_48ed337267a8a4::t_0ac530d9f011c8 99-100
+  s_48ed337267a8a4::t_1368d46943f6fa 6,50,56
+.github/workflows/test-with-results.yml
+  s_48ed337267a8a4::t_554c85929c2272 226-227
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "c1a4d5df12fab2f4760f640d8cdde79b697fbb84",
+  "prompts": {},
+  "humans": {
+    "h_7cae82992be157": {
+      "author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_48ed337267a8a4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "60b32f7f-033b-4396-bed0-7b277aa3b901",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Avi Kumar <avirath.kmr@gmail.com>"
+    }
+  }
+}
