@@ -1,12 +1,11 @@
-import json
-
 import pytest
 from langsmith import Client
 from openevals.llm import create_llm_as_judge
 
 from agents.config import DATASET_NAME, EXPERIMENT_PREFIX_SQL
-from agents.simple_text2sql import build_llm, generate_sql, llm
+from agents.simple_text2sql import generate_sql, llm
 from agents.utils import get_detailed_table_info
+from tests.offline_evals.eval_config import build_judge_llm, write_eval_config
 
 # Setup LangSmith client
 client = Client()
@@ -48,13 +47,13 @@ Rating:
 sql_correctness_evaluator = create_llm_as_judge(
     prompt=SQL_CORRECTNESS_PROMPT,
     feedback_key="sql_correctness",
-    judge=build_llm(),
+    judge=build_judge_llm(),
 )
 
 sql_quality_evaluator = create_llm_as_judge(
     prompt=SQL_QUALITY_PROMPT,
     feedback_key="sql_quality",
-    judge=build_llm(),
+    judge=build_judge_llm(),
 )
 
 
@@ -97,15 +96,5 @@ def test_sql_generation_evaluation():
 
     # Judges are boolean, so scores are the fraction of examples passing (0-1).
     criteria = {"sql_correctness": ">=0.75", "sql_quality": ">=0.8"}
-
-    output_metadata = {
-        "experiment_name": experiment_results.experiment_name,
-        "criteria": criteria,
-    }
-
-    safe_name = experiment_results.experiment_name.replace(":", "-").replace("/", "-")
-    config_filename = f"evaluation_config__{safe_name}.json"
-    with open(config_filename, "w") as f:
-        json.dump(output_metadata, f)
-
-    print(f"::set-output name=config_filename::{config_filename}")
+    config_filename = write_eval_config(experiment_results.experiment_name, criteria)
+    print(f"📝 Thresholds written to {config_filename}")

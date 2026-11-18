@@ -223,6 +223,8 @@ jobs:
       - name: Build the evaluation report
         run: uv run python .github/scripts/report_eval.py --verbose evaluation_config__*.json
       - name: Comment on the PR with the evaluation summary
+        # Post even when thresholds fail; that is when the comment matters most.
+        if: ${{ !cancelled() && hashFiles('eval_comment.md') != '' }}
         uses: actions/github-script@v9
         with:
           script: |
