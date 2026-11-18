@@ -67,6 +67,10 @@ set `LLM_PROVIDER` to force one and `LLM_MODEL` to override the model.
 | `anthropic` | `ANTHROPIC_API_KEY` | `claude-haiku-4-5-20251001` | You have an Anthropic key |
 | `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | You have an OpenAI key |
 
+The defaults live in one place, `DEFAULT_MODELS` in `agents/simple_text2sql.py`.
+CI, previews and production all follow it unless `LLM_MODEL` is set, so
+switching models is a one-line change there.
+
 ### The LLM Gateway route
 
 The [LangSmith LLM Gateway](https://docs.langchain.com/langsmith/llm-gateway-api-formats)
@@ -94,7 +98,8 @@ curl https://gateway.smith.langchain.com/v1/models \
 > --secret-env LLM_GATEWAY_BASE_URL --secret-env LLM_MODEL
 > ```
 >
-> Both deployment workflows already pass these.
+> Both deployment workflows already pass these. `LLM_MODEL` is forwarded only
+> when the repository variable is set; otherwise the code default applies.
 
 CI routes every job through the gateway, so no provider key is needed anywhere
 in the pipeline. The e2e test pins `openai/gpt-4o` to keep its assertions on the
@@ -191,7 +196,7 @@ no access to these secrets, by design.
 | `LANGSMITH_TRACING` | Enable tracing in test jobs | `false` |
 | `LANGSMITH_ENDPOINT` | LangSmith **tracing** API URL | LangSmith default |
 | `LLM_GATEWAY_BASE_URL` | Gateway URL used by every job | LangSmith Cloud gateway |
-| `LLM_MODEL` | Provider-qualified model ID | `anthropic/claude-haiku-4-5-20251001` |
+| `LLM_MODEL` | Provider-qualified model ID; overrides the code default | `DEFAULT_MODELS` in `agents/simple_text2sql.py` |
 
 **Repository secrets:**
 

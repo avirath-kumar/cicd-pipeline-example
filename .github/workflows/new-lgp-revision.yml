@@ -155,7 +155,8 @@ jobs:
           CONTROL_PLANE_HOST: ${{ secrets.CONTROL_PLANE_HOST }}
           LANGSMITH_REGION: ${{ vars.LANGSMITH_REGION || 'us' }}
           LLM_GATEWAY_BASE_URL: ${{ vars.LLM_GATEWAY_BASE_URL || 'https://gateway.smith.langchain.com/v1' }}
-          LLM_MODEL: ${{ vars.LLM_MODEL || 'anthropic/claude-haiku-4-5-20251001' }}
+          # Unset -> not forwarded; the deployment uses DEFAULT_MODELS from the branch.
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
           REPO_REF: ${{ github.event.pull_request.base.ref }}
           REPO_URL: ${{ github.server_url }}/${{ github.repository }}
         run: |
@@ -166,7 +167,7 @@ jobs:
             --repo-ref "$REPO_REF" \
             --image-uri "$REGISTRY/$IMAGE_NAME:latest" \
             --secret-env LLM_GATEWAY_BASE_URL \
-            --secret-env LLM_MODEL \
+            ${LLM_MODEL:+--secret-env LLM_MODEL} \
             --wait
 
       - name: Generate deployment status report

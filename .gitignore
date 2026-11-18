@@ -60,3 +60,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local plans
+/docs/
